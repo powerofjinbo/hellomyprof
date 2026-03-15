@@ -39,6 +39,22 @@ function nameVariantScore(author, queryName) {
   return variants.reduce((best, variant) => Math.max(best, exactish(variant, queryName)), 0);
 }
 
+function authorNameVariants(author) {
+  return Array.from(new Set([author.display_name, ...(author.display_name_alternatives || [])].filter(Boolean)));
+}
+
+function crossVariantScore(left, right) {
+  const leftVariants = authorNameVariants(left);
+  const rightVariants = authorNameVariants(right);
+  let best = 0;
+  for (const leftVariant of leftVariants) {
+    for (const rightVariant of rightVariants) {
+      best = Math.max(best, exactish(leftVariant, rightVariant));
+    }
+  }
+  return best;
+}
+
 function institutionScore(author, institutionHint) {
   return exactish(pickInstitution(author, institutionHint), institutionHint);
 }
@@ -47,22 +63,49 @@ function hasInstitutionData(author) {
   return Boolean((author.last_known_institutions || []).length || (author.affiliations || []).length);
 }
 
+function sameInstitutionScore(left, right) {
+  if (!hasInstitutionData(left) || !hasInstitutionData(right)) {
+    return 0;
+  }
+  return exactish(pickInstitution(left, ''), pickInstitution(right, ''));
+}
+
+function fieldScore(author, researchField) {
+  return computeFieldAlignment(author, [], researchField || '');
+}
+
 function shouldMerge(left, right, query) {
   const queryName = query.professorName || '';
   const leftName = splitName(left.display_name);
   const rightName = splitName(right.display_name);
   const sameLastName = leftName.last && leftName.last === rightName.last;
   const sameInitial = leftName.first?.[0] && leftName.first[0] === rightName.first?.[0];
-  const strongQueryMatch = nameVariantScore(left, queryName) >= 0.72 && nameVariantScore(right, queryName) >= 0.72;
+  const leftQueryNameScore = nameVariantScore(left, queryName);
+  const rightQueryNameScore = nameVariantScore(right, queryName);
+  const variantSimilarity = crossVariantScore(left, right);
+  const strongQueryMatch = leftQueryNameScore >= 0.72 && rightQueryNameScore >= 0.72;
+  const exactDisplayDuplicate =
+    variantSimilarity >= 0.96 &&
+    (!queryName || (leftQueryNameScore >= 0.88 && rightQueryNameScore >= 0.88));
   const leftInstitutionMatch = institutionScore(left, query.institutionName);
   const rightInstitutionMatch = institutionScore(right, query.institutionName);
+  const directInstitutionSimilarity = sameInstitutionScore(left, right);
   const institutionAligned =
     !query.institutionName ||
     ((leftInstitutionMatch >= 0.72 || !hasInstitutionData(left)) && (rightInstitutionMatch >= 0.72 || !hasInstitutionData(right)));
-  const fieldAligned =
-    !query.researchField || (computeFieldAlignment(left, [], query.researchField || '') >= 0.35 && computeFieldAlignment(right, [], query.researchField || '') >= 0.35);
+  const mutuallyAlignedInstitutions =
+    institutionAligned || directInstitutionSimilarity >= 0.84 || (!hasInstitutionData(left) && !hasInstitutionData(right));
+  const leftFieldScore = fieldScore(left, query.researchField);
+  const rightFieldScore = fieldScore(right, query.researchField);
+  const fieldAligned = !query.researchField || (leftFieldScore >= 0.35 && rightFieldScore >= 0.35);
 
-  return Boolean(sameLastName && sameInitial && strongQueryMatch && institutionAligned && fieldAligned);
+  return Boolean(
+    sameLastName &&
+      sameInitial &&
+      mutuallyAlignedInstitutions &&
+      fieldAligned &&
+      (strongQueryMatch || exactDisplayDuplicate || (variantSimilarity >= 0.84 && leftQueryNameScore >= 0.8 && rightQueryNameScore >= 0.8)),
+  );
 }
 
 export function dedupeWorks(works) {
@@ -97,6 +140,32 @@ function mergeCountsByYear(authors) {
   return Array.from(byYear.values()).sort((left, right) => left.year - right.year);
 }
 
+function countsByYearFromWorks(works) {
+  const byYear = new Map();
+  for (const work of works) {
+    const year = Number(work.publication_year);
+    if (!Number.isFinite(year)) {
+      continue;
+    }
+    const current = byYear.get(year) || { year, works_count: 0, cited_by_count: 0 };
+    current.works_count += 1;
+    current.cited_by_count += work.cited_by_count || 0;
+    byYear.set(year, current);
+  }
+  return Array.from(byYear.values()).sort((left, right) => left.year - right.year);
+}
+
+function flattenMergedAuthorIds(authors) {
+  return Array.from(
+    new Set(
+      authors.flatMap((author) => {
+        const mergedIds = Array.isArray(author.mergedAuthorIds) ? author.mergedAuthorIds : [];
+        return mergedIds.length ? mergedIds : [author.id];
+      }),
+    ),
+  );
+}
+
 function bestDisplayName(authors, alternatives, preferredName = '') {
   const anchor = splitName(preferredName || authors[0]?.display_name || '');
   const candidates = Array.from(new Set([...authors.map((author) => author.display_name), ...alternatives])).filter((candidate) => {
@@ -120,6 +189,8 @@ export function mergeAuthorProfiles(authors, mergedWorks = [], preferredName = '
     .slice()
     .sort((left, right) => (right.works_count || 0) - (left.works_count || 0) || (right.cited_by_count || 0) - (left.cited_by_count || 0));
   const primary = sorted[0];
+  const maxWorksCount = Math.max(...sorted.map((author) => author.works_count || 0), 0);
+  const maxCitations = Math.max(...sorted.map((author) => author.cited_by_count || 0), 0);
   const allTopics = new Map();
   const allInstitutions = new Map();
   const alternatives = new Set();
@@ -142,65 +213,100 @@ export function mergeAuthorProfiles(authors, mergedWorks = [], preferredName = '
   const displayName = bestDisplayName(sorted, alternatives, preferredName);
   return {
     ...primary,
-    id: `merged:${sorted.map((author) => author.id.split('/').pop()).join('+')}`,
+    id: `merged:${flattenMergedAuthorIds(sorted).map((authorId) => authorId.split('/').pop()).join('+')}`,
     display_name: displayName || primary.display_name,
     display_name_alternatives: Array.from(alternatives),
-    works_count: Math.max(mergedWorks.length, sorted.reduce((sum, author) => sum + (author.works_count || 0), 0)),
-    cited_by_count: sorted.reduce((sum, author) => sum + (author.cited_by_count || 0), 0),
+    works_count: mergedWorks.length ? Math.max(mergedWorks.length, maxWorksCount) : maxWorksCount,
+    cited_by_count: maxCitations,
     summary_stats: {
       ...(primary.summary_stats || {}),
       h_index: Math.max(...sorted.map((author) => author.summary_stats?.h_index || 0)),
     },
     topics: Array.from(allTopics.values()).sort((left, right) => (right.count || 0) - (left.count || 0)).slice(0, 8),
     last_known_institutions: Array.from(allInstitutions.values()),
-    counts_by_year: mergeCountsByYear(sorted),
-    mergedAuthorIds: sorted.map((author) => author.id),
+    counts_by_year: mergedWorks.length ? countsByYearFromWorks(mergedWorks) : mergeCountsByYear(sorted),
+    mergedAuthorIds: flattenMergedAuthorIds(sorted),
     mergedProfileCount: sorted.length,
   };
 }
 
+function shouldSuppressDuplicate(left, right, query) {
+  const exactQueryAligned =
+    nameVariantScore(left, query.professorName || '') >= 0.88 &&
+    nameVariantScore(right, query.professorName || '') >= 0.88 &&
+    crossVariantScore(left, right) >= 0.9;
+  const institutionAligned =
+    !query.institutionName ||
+    (institutionScore(left, query.institutionName) >= 0.72 && institutionScore(right, query.institutionName) >= 0.72);
+  const fieldAligned =
+    !query.researchField || (fieldScore(left, query.researchField) >= 0.35 && fieldScore(right, query.researchField) >= 0.35);
+  return exactQueryAligned && institutionAligned && fieldAligned;
+}
+
 export function buildAuthorMatches(authors, query) {
   const ranked = rankAuthors(authors, query);
-  const used = new Set();
-  const matches = [];
+  const parent = ranked.map((_, index) => index);
 
+  function find(index) {
+    let current = index;
+    while (parent[current] !== current) {
+      parent[current] = parent[parent[current]];
+      current = parent[current];
+    }
+    return current;
+  }
+
+  function union(leftIndex, rightIndex) {
+    const leftRoot = find(leftIndex);
+    const rightRoot = find(rightIndex);
+    if (leftRoot !== rightRoot) {
+      parent[rightRoot] = leftRoot;
+    }
+  }
+
+  for (let leftIndex = 0; leftIndex < ranked.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < ranked.length; rightIndex += 1) {
+      if (shouldMerge(ranked[leftIndex], ranked[rightIndex], query)) {
+        union(leftIndex, rightIndex);
+      }
+    }
+  }
+
+  const clusters = new Map();
   for (let index = 0; index < ranked.length; index += 1) {
-    const author = ranked[index];
-    if (used.has(author.id)) {
-      continue;
-    }
+    const root = find(index);
+    const cluster = clusters.get(root) || [];
+    cluster.push(ranked[index]);
+    clusters.set(root, cluster);
+  }
 
-    const cluster = [author];
-    for (let inner = index + 1; inner < ranked.length; inner += 1) {
-      const candidate = ranked[inner];
-      if (used.has(candidate.id)) {
-        continue;
+  const clusteredMatches = Array.from(clusters.values())
+    .map((cluster) => {
+      if (cluster.length === 1) {
+        return {
+          ...cluster[0],
+          profileType: 'single',
+          mergedProfileCount: 1,
+        };
       }
-      if (shouldMerge(author, candidate, query)) {
-        cluster.push(candidate);
-        used.add(candidate.id);
-      }
-    }
 
-    if (cluster.length > 1) {
       const merged = mergeAuthorProfiles(cluster, [], query.professorName || '');
-      matches.push({
+      return {
         ...merged,
         matchScore: Math.max(...cluster.map((item) => item.matchScore || 0)),
         mergedProfileCount: cluster.length,
         profileType: 'merged',
-      });
-      used.add(author.id);
+      };
+    })
+    .sort((left, right) => right.matchScore - left.matchScore || (right.cited_by_count || 0) - (left.cited_by_count || 0));
+
+  const dedupedMatches = [];
+  for (const match of clusteredMatches) {
+    if (dedupedMatches.some((existing) => shouldSuppressDuplicate(existing, match, query))) {
       continue;
     }
-
-    matches.push({
-      ...author,
-      profileType: 'single',
-      mergedProfileCount: 1,
-    });
-    used.add(author.id);
+    dedupedMatches.push(match);
   }
 
-  return matches.sort((left, right) => right.matchScore - left.matchScore || (right.cited_by_count || 0) - (left.cited_by_count || 0));
+  return dedupedMatches;
 }

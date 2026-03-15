@@ -153,6 +153,13 @@ function renderMatchPanel() {
       const active = author.id === state.selectedAuthorId;
       const institution = pickInstitution(author, state.query?.institutionName || '');
       const topic = author.topics?.[0]?.display_name || 'Topic unavailable';
+      const isMerged = author.mergedProfileCount > 1;
+      const topicRow = isMerged
+        ? `${topic} · merged candidate · ${author.mergedProfileCount} source profiles`
+        : `${topic} · ${formatCompactNumber(author.cited_by_count || 0)} citations · ${author.works_count || 0} works`;
+      const metaLabel = isMerged
+        ? 'Citation / work / H-index metrics are recomputed after loading the merged report'
+        : `H-index ${author.summary_stats?.h_index || 0}`;
 
       return `
         <article class="candidate-card${active ? ' active' : ''}">
@@ -161,16 +168,16 @@ function renderMatchPanel() {
               <h3>${escapeHtml(author.display_name)}</h3>
               <p class="candidate-meta">${escapeHtml(institution)}</p>
               ${
-                author.mergedProfileCount > 1
+                isMerged
                   ? `<p class="candidate-meta">Merged ${author.mergedProfileCount} OpenAlex profiles for author disambiguation.</p>`
                   : ''
               }
             </div>
             <div class="candidate-score">Match ${author.matchScore}/100</div>
           </div>
-          <p class="topic-row">${escapeHtml(topic)} · ${formatCompactNumber(author.cited_by_count || 0)} citations · ${author.works_count || 0} works</p>
+          <p class="topic-row">${escapeHtml(topicRow)}</p>
           <div class="candidate-actions">
-            <span class="candidate-meta">H-index ${author.summary_stats?.h_index || 0}</span>
+            <span class="candidate-meta">${escapeHtml(metaLabel)}</span>
             <button class="match-button" type="button" data-author-id="${escapeHtml(author.id)}">
               ${active ? 'Viewing report' : 'Use this profile'}
             </button>
