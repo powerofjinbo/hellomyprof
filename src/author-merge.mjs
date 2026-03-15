@@ -88,11 +88,33 @@ function hasInstitutionData(author) {
   return Boolean((author.last_known_institutions || []).length || (author.affiliations || []).length);
 }
 
+function institutionNames(author) {
+  const names = new Set();
+  for (const institution of author.last_known_institutions || []) {
+    if (institution?.display_name) {
+      names.add(institution.display_name);
+    }
+  }
+  for (const affiliation of author.affiliations || []) {
+    if (affiliation?.institution?.display_name) {
+      names.add(affiliation.institution.display_name);
+    }
+  }
+  return Array.from(names);
+}
+
 function sameInstitutionScore(left, right) {
   if (!hasInstitutionData(left) || !hasInstitutionData(right)) {
     return 0;
   }
-  return exactish(pickInstitution(left, ''), pickInstitution(right, ''));
+
+  let best = 0;
+  for (const leftInstitution of institutionNames(left)) {
+    for (const rightInstitution of institutionNames(right)) {
+      best = Math.max(best, exactish(leftInstitution, rightInstitution));
+    }
+  }
+  return best;
 }
 
 function fieldScore(author, researchField) {
@@ -109,8 +131,14 @@ function institutionsAligned(left, right, queryInstitution = '') {
     return directSimilarity >= 0.84;
   }
 
-  const leftInstitutionMatch = institutionScore(left, queryInstitution);
-  const rightInstitutionMatch = institutionScore(right, queryInstitution);
+  const leftInstitutionMatch = institutionNames(left).reduce(
+    (best, value) => Math.max(best, exactish(value, queryInstitution)),
+    0,
+  );
+  const rightInstitutionMatch = institutionNames(right).reduce(
+    (best, value) => Math.max(best, exactish(value, queryInstitution)),
+    0,
+  );
   return directSimilarity >= 0.84 || (leftInstitutionMatch >= 0.72 && rightInstitutionMatch >= 0.72);
 }
 

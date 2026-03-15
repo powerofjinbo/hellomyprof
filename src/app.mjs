@@ -358,6 +358,8 @@ function renderReport() {
         .join('')
     : '<p class="trajectory-footnote">Website enrichment did not produce verified page-level evidence for this profile.</p>';
   const googleScholar = externalProfiles?.googleScholar || null;
+  const affiliationFootprint = externalProfiles?.affiliationFootprint || [];
+  const supplementalSources = externalProfiles?.supplementalSources || null;
   const googleScholarStatusLabel =
     googleScholar?.status === 'matched'
       ? `matched via ${googleScholar.provider}`
@@ -412,6 +414,65 @@ function renderReport() {
         </ul>
       `
     : '<ul class="manual-checks"><li>Google Scholar did not return a structured profile payload for this report.</li></ul>';
+  const affiliationFootprintLabel = affiliationFootprint.length
+    ? affiliationFootprint
+        .map((entry) => `${entry.name}${entry.years?.length ? ` (${entry.years.slice(0, 2).join(', ')})` : ''}`)
+        .join(' · ')
+    : 'No affiliation footprint available';
+  const supplementalSourceCards = [
+    supplementalSources?.rateMyProfessors
+      ? `
+        <article class="website-evidence-card">
+          <div class="website-evidence-topline">
+            <strong>Rate My Professors</strong>
+            <span class="score-pill score-pill-subtle">${escapeHtml(supplementalSources.rateMyProfessors.status)}</span>
+          </div>
+          <p class="candidate-meta">${escapeHtml(supplementalSources.rateMyProfessors.note || '')}</p>
+          <ul class="manual-checks">
+            ${
+              supplementalSources.rateMyProfessors.status === 'matched'
+                ? `
+                  <li>${supplementalSources.rateMyProfessors.school ? escapeHtml(supplementalSources.rateMyProfessors.school) : 'School unavailable'}${supplementalSources.rateMyProfessors.department ? ` · ${escapeHtml(supplementalSources.rateMyProfessors.department)}` : ''}</li>
+                  <li>${supplementalSources.rateMyProfessors.avgRating != null ? `Quality ${supplementalSources.rateMyProfessors.avgRating}` : 'Quality unavailable'}${supplementalSources.rateMyProfessors.numRatings != null ? ` · ${supplementalSources.rateMyProfessors.numRatings} ratings` : ''}</li>
+                  <li>${supplementalSources.rateMyProfessors.wouldTakeAgainPercent != null ? `${Math.round(supplementalSources.rateMyProfessors.wouldTakeAgainPercent)}% would take again` : 'Would-take-again unavailable'}${supplementalSources.rateMyProfessors.avgDifficulty != null ? ` · difficulty ${supplementalSources.rateMyProfessors.avgDifficulty}` : ''}</li>
+                `
+                : `<li>${escapeHtml(supplementalSources.rateMyProfessors.searchUrl || '')}</li>`
+            }
+          </ul>
+        </article>
+      `
+      : '',
+    supplementalSources?.researchGate
+      ? `
+        <article class="website-evidence-card">
+          <div class="website-evidence-topline">
+            <strong>ResearchGate</strong>
+            <span class="score-pill score-pill-subtle">${escapeHtml(supplementalSources.researchGate.status)}</span>
+          </div>
+          <p class="candidate-meta">${escapeHtml(supplementalSources.researchGate.note || '')}</p>
+          <ul class="manual-checks">
+            <li><a class="report-link" href="${escapeHtml(supplementalSources.researchGate.searchUrl)}" target="_blank" rel="noreferrer">ResearchGate search</a></li>
+          </ul>
+        </article>
+      `
+      : '',
+    supplementalSources?.zotero
+      ? `
+        <article class="website-evidence-card">
+          <div class="website-evidence-topline">
+            <strong>Zotero</strong>
+            <span class="score-pill score-pill-subtle">${escapeHtml(supplementalSources.zotero.status)}</span>
+          </div>
+          <p class="candidate-meta">${escapeHtml(supplementalSources.zotero.note || '')}</p>
+          <ul class="manual-checks">
+            <li><a class="report-link" href="${escapeHtml(supplementalSources.zotero.searchUrl)}" target="_blank" rel="noreferrer">Zotero search</a></li>
+          </ul>
+        </article>
+      `
+      : '',
+  ]
+    .filter(Boolean)
+    .join('');
 
   reportPanel.innerHTML = `
     <div class="report-topline">
@@ -422,6 +483,7 @@ function renderReport() {
           <p>${escapeHtml(institution)}</p>
           <p>Primary topic: ${escapeHtml(primaryTopic)}</p>
           <p>Sample size: ${metrics.sampleSize} recent works</p>
+          <p>Affiliation footprint: ${escapeHtml(affiliationFootprintLabel)}</p>
           <p>Context: ${escapeHtml(queryContextLabel(state.report))}</p>
           ${author.mergedProfileCount > 1 ? `<p>Identity resolution: merged ${author.mergedProfileCount} OpenAlex profiles</p>` : ''}
         </div>
@@ -497,6 +559,20 @@ function renderReport() {
 
     <section class="evidence-grid">
       <div class="subpanel">
+        <h3>Supplemental public-web sources</h3>
+        <p class="candidate-meta">These sources are shown for broader context only and are excluded from core research-score calculations.</p>
+        <div class="website-evidence-stack">${supplementalSourceCards || '<p class="trajectory-footnote">No supplemental public-web sources were recovered for this profile.</p>'}</div>
+      </div>
+      <div class="subpanel">
+        <h3>Affiliation boundary</h3>
+        <ul class="manual-checks">
+          ${affiliationFootprint.length ? affiliationFootprint.map((entry) => `<li>${escapeHtml(entry.name)}${entry.type ? ` · ${escapeHtml(entry.type)}` : ''}${entry.years?.length ? ` · years ${escapeHtml(entry.years.join(', '))}` : ''}${entry.source ? ` · ${escapeHtml(entry.source)}` : ''}</li>`).join('') : '<li>No additional affiliations were exposed in the current metadata payload.</li>'}
+        </ul>
+      </div>
+    </section>
+
+    <section class="evidence-grid">
+      <div class="subpanel">
         <h3>Verified source boundary</h3>
         <ul class="manual-checks">
           ${verifiedFactsHtml}
@@ -523,6 +599,9 @@ function renderReport() {
           ${externalProfiles?.semanticScholar?.url ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.semanticScholar.url)}" target="_blank" rel="noreferrer">Semantic Scholar profile</a> <span class="candidate-meta">· ${externalProfiles.semanticScholar.citationCount != null ? `${formatCompactNumber(externalProfiles.semanticScholar.citationCount)} citations` : 'profile found'}</span></li>` : ''}
           ${externalProfiles?.dblpProfileUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.dblpProfileUrl)}" target="_blank" rel="noreferrer">DBLP author page</a></li>` : ''}
           ${googleScholarSourceItem}
+          ${supplementalSources?.rateMyProfessors?.profileUrl ? `<li><a class="report-link" href="${escapeHtml(supplementalSources.rateMyProfessors.profileUrl)}" target="_blank" rel="noreferrer">Rate My Professors profile</a> <span class="candidate-meta">· subjective teaching source</span></li>` : (supplementalSources?.rateMyProfessors?.searchUrl ? `<li><a class="report-link" href="${escapeHtml(supplementalSources.rateMyProfessors.searchUrl)}" target="_blank" rel="noreferrer">Rate My Professors search</a> <span class="candidate-meta">· subjective teaching source</span></li>` : '')}
+          ${supplementalSources?.researchGate?.searchUrl ? `<li><a class="report-link" href="${escapeHtml(supplementalSources.researchGate.searchUrl)}" target="_blank" rel="noreferrer">ResearchGate search</a> <span class="candidate-meta">· ${escapeHtml(supplementalSources.researchGate.status || 'unavailable')}</span></li>` : ''}
+          ${supplementalSources?.zotero?.searchUrl ? `<li><a class="report-link" href="${escapeHtml(supplementalSources.zotero.searchUrl)}" target="_blank" rel="noreferrer">Zotero search</a> <span class="candidate-meta">· ${escapeHtml(supplementalSources.zotero.status || 'unavailable')}</span></li>` : ''}
           ${externalProfiles?.scopusUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.scopusUrl)}" target="_blank" rel="noreferrer">Scopus author profile</a></li>` : ''}
           ${externalProfiles?.homepage ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.homepage)}" target="_blank" rel="noreferrer">Author homepage</a> <span class="candidate-meta">· external</span></li>` : ''}
         </div>

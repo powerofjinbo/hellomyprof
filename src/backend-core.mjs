@@ -5,6 +5,7 @@ import { lookupInspireIdentityEvidence } from './inspire-evidence.mjs';
 import { enrichProfessorWebPresence } from './web-enrichment.mjs';
 import { lookupSemanticScholar } from './semantic-scholar.mjs';
 import { buildScholarAuthorSearchUrl, buildScholarPaperSearchUrl, lookupGoogleScholar } from './google-scholar.mjs';
+import { lookupSupplementalSources } from './supplemental-sources.mjs';
 import { enrichTopWorksWithCrossref } from './crossref-enrichment.mjs';
 
 const reportCache = new Map();
@@ -131,7 +132,36 @@ function normalizeOrcidUrl(orcid) {
   return `https://orcid.org/${bare}`;
 }
 
-function buildExternalProfiles(author, query, { inspire, semanticScholar, googleScholar, dblpProfileUrl = null }) {
+function affiliationFootprint(author) {
+  const seen = new Set();
+  const footprint = [];
+
+  for (const institution of author.last_known_institutions || []) {
+    if (!institution?.display_name || seen.has(institution.display_name)) continue;
+    seen.add(institution.display_name);
+    footprint.push({
+      name: institution.display_name,
+      type: institution.type || null,
+      source: 'last_known_institutions',
+    });
+  }
+
+  for (const affiliation of author.affiliations || []) {
+    const institution = affiliation?.institution;
+    if (!institution?.display_name || seen.has(institution.display_name)) continue;
+    seen.add(institution.display_name);
+    footprint.push({
+      name: institution.display_name,
+      type: institution.type || null,
+      source: 'affiliations',
+      years: affiliation?.years || [],
+    });
+  }
+
+  return footprint;
+}
+
+function buildExternalProfiles(author, query, { inspire, semanticScholar, googleScholar, supplementalSources, dblpProfileUrl = null }) {
   const profiles = {
     inspire: inspire || null,
     semanticScholar: semanticScholar || null,
@@ -147,6 +177,8 @@ function buildExternalProfiles(author, query, { inspire, semanticScholar, google
     openalex: author.id || null,
     homepage: author.homepage_url || semanticScholar?.homepage || null,
     dblpProfileUrl: dblpProfileUrl || null,
+    affiliationFootprint: affiliationFootprint(author),
+    supplementalSources: supplementalSources || null,
   };
 
   const openAlexIds = author.ids || {};
@@ -196,7 +228,7 @@ export async function buildProfessorReport(payload = {}) {
     institution: pickInstitution(author, query.institutionName || ''),
     orcid: author.ids?.orcid || '',
   }).catch(() => null);
-  const [collaborationInsights, semanticScholarProfile, googleScholarProfile] = await Promise.all([
+  const [collaborationInsights, semanticScholarProfile, googleScholarProfile, supplementalSources] = await Promise.all([
     buildCollaborationInsights({
       author,
       works,
@@ -212,12 +244,18 @@ export async function buildProfessorReport(payload = {}) {
       institution: pickInstitution(author, query.institutionName || ''),
       researchField: query.researchField,
     }).catch(() => null),
+    lookupSupplementalSources({
+      name: author.display_name,
+      institution: pickInstitution(author, query.institutionName || ''),
+      researchField: query.researchField,
+    }).catch(() => null),
   ]);
 
   const externalProfiles = buildExternalProfiles(author, query, {
     inspire: inspireProfile,
     semanticScholar: semanticScholarProfile,
     googleScholar: googleScholarProfile,
+    supplementalSources,
     dblpProfileUrl: websiteSignals?.dblpProfileUrl || null,
   });
 

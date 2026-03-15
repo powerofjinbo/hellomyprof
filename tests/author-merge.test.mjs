@@ -171,3 +171,42 @@ test('buildAuthorMatches does not merge same-name variants across different inst
   assert.equal(matches[0].profileType, 'single');
   assert.equal(matches[1].profileType, 'single');
 });
+
+test('buildAuthorMatches respects secondary affiliations when institutions overlap', () => {
+  const matches = buildAuthorMatches(
+    [
+      {
+        id: 'https://openalex.org/A30',
+        display_name: 'Daniel Whiteson',
+        works_count: 25,
+        cited_by_count: 1800,
+        summary_stats: { h_index: 22 },
+        last_known_institutions: [{ display_name: 'Brookhaven National Laboratory', type: 'facility' }],
+        affiliations: [
+          {
+            institution: { display_name: 'University of California, Irvine', type: 'education' },
+            years: [2025, 2026],
+          },
+        ],
+        topics: [{ display_name: 'Particle Physics' }],
+      },
+      {
+        id: 'https://openalex.org/A31',
+        display_name: 'D. Whiteson',
+        works_count: 4,
+        cited_by_count: 90,
+        summary_stats: { h_index: 3 },
+        last_known_institutions: [{ display_name: 'University of California, Irvine', type: 'education' }],
+        topics: [{ display_name: 'Particle Physics' }],
+      },
+    ],
+    {
+      professorName: 'Daniel Whiteson',
+      researchField: 'particle physics',
+      institutionName: 'University of California, Irvine',
+    },
+  );
+
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].profileType, 'merged');
+});

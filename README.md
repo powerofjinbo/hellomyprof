@@ -10,8 +10,10 @@ It combines:
 
 - evidence-backed publication signals from OpenAlex
 - author disambiguation and merged-profile handling for split OpenAlex identities
+- multi-affiliation-aware institution matching so overlapping current and historical affiliations can be considered during identity resolution
 - Google Scholar cross-checks when a configured Scholar proxy is available, with explicit `matched / blocked / unavailable` status boundaries
 - official source discovery using ORCID, INSPIRE-HEP, DBLP, and verified institutional pages
+- supplemental public-web source checks for Rate My Professors, ResearchGate, and Zotero, kept outside the core research-score path
 - multidimensional scoring across influence, paper quality, output volume, publication cadence, field fit, and collaboration structure
 - explicit coauthor identity evidence labels only when an external source exposes a current or latest-stage junior/student signal
 - dynamic histograms for a single professor profile
@@ -114,6 +116,7 @@ node --test
 - `src/app.mjs` - API-driven rendering and comparison UI
 - `src/prof-evaluator.mjs` - scoring model, evidence summary, and comparison helpers
 - `src/author-merge.mjs` - conservative merged-profile logic for split OpenAlex identities
+- `src/supplemental-sources.mjs` - supplemental public-web source checks for Rate My Professors, ResearchGate, and Zotero
 - `src/google-scholar.mjs` - Google Scholar enrichment, provider handling, and direct-access boundary reporting
 - `src/collaboration-insights.mjs` - coauthor-network analysis
 - `src/inspire-evidence.mjs` - explicit collaborator identity evidence via INSPIRE-HEP
@@ -121,6 +124,7 @@ node --test
 - `tests/prof-evaluator.test.mjs` - evaluator tests
 - `tests/author-merge.test.mjs` - author merge tests
 - `tests/google-scholar.test.mjs` - Google Scholar enrichment tests
+- `tests/supplemental-sources.test.mjs` - supplemental public-web source tests
 - `tests/collaboration-insights.test.mjs` - collaboration evidence tests
 - `tests/web-enrichment.test.mjs` - website enrichment parsing tests
 
