@@ -99,6 +99,21 @@ function fieldScore(author, researchField) {
   return computeFieldAlignment(author, [], researchField || '');
 }
 
+function institutionsAligned(left, right, queryInstitution = '') {
+  if (!hasInstitutionData(left) || !hasInstitutionData(right)) {
+    return false;
+  }
+
+  const directSimilarity = sameInstitutionScore(left, right);
+  if (!queryInstitution) {
+    return directSimilarity >= 0.84;
+  }
+
+  const leftInstitutionMatch = institutionScore(left, queryInstitution);
+  const rightInstitutionMatch = institutionScore(right, queryInstitution);
+  return directSimilarity >= 0.84 || (leftInstitutionMatch >= 0.72 && rightInstitutionMatch >= 0.72);
+}
+
 function normalizeIdentityValue(value, prefixPattern = null) {
   if (!value) return '';
   let normalized = String(value).trim().toLowerCase();
@@ -140,28 +155,20 @@ function shouldMerge(left, right, query) {
   const exactDisplayDuplicate =
     variantSimilarity >= 0.96 &&
     (!queryName || (leftQueryNameScore >= 0.88 && rightQueryNameScore >= 0.88));
-  const leftInstitutionMatch = institutionScore(left, query.institutionName);
-  const rightInstitutionMatch = institutionScore(right, query.institutionName);
-  const directInstitutionSimilarity = sameInstitutionScore(left, right);
-  const missingInstitutionBridge =
-    (leftInstitutionMatch >= 0.72 && !hasInstitutionData(right)) || (rightInstitutionMatch >= 0.72 && !hasInstitutionData(left));
-  const institutionAligned =
-    !query.institutionName ||
-    ((leftInstitutionMatch >= 0.72 || !hasInstitutionData(left)) && (rightInstitutionMatch >= 0.72 || !hasInstitutionData(right)));
-  const mutuallyAlignedInstitutions =
-    institutionAligned || directInstitutionSimilarity >= 0.84 || missingInstitutionBridge || (!hasInstitutionData(left) && !hasInstitutionData(right));
+  const mutuallyAlignedInstitutions = institutionsAligned(left, right, query.institutionName || '');
   const leftFieldScore = fieldScore(left, query.researchField);
   const rightFieldScore = fieldScore(right, query.researchField);
   const fieldAligned = !query.researchField || (leftFieldScore >= 0.35 && rightFieldScore >= 0.35);
-  const sameExternalIdentity = sharedExternalIdentity(left, right);
 
   return Boolean(
     sameLastName &&
       sameInitial &&
+      mutuallyAlignedInstitutions &&
       fieldAligned &&
-      (sameExternalIdentity ||
-        (mutuallyAlignedInstitutions &&
-          (strongQueryMatch || exactDisplayDuplicate || (variantSimilarity >= 0.84 && leftQueryNameScore >= 0.8 && rightQueryNameScore >= 0.8)))),
+      (sharedExternalIdentity(left, right) ||
+        strongQueryMatch ||
+        exactDisplayDuplicate ||
+        (variantSimilarity >= 0.84 && leftQueryNameScore >= 0.8 && rightQueryNameScore >= 0.8)),
   );
 }
 
@@ -296,26 +303,11 @@ function shouldSuppressDuplicate(left, right, query) {
     nameVariantScore(left, query.professorName || '') >= 0.86 &&
     nameVariantScore(right, query.professorName || '') >= 0.86 &&
     crossVariantScore(left, right) >= 0.88;
-  const strongNameAnchor =
-    nameVariantScore(left, query.professorName || '') >= 0.92 &&
-    nameVariantScore(right, query.professorName || '') >= 0.92 &&
-    crossVariantScore(left, right) >= 0.9;
-  const institutionAligned =
-    !query.institutionName
-      ? sameInstitutionScore(left, right) >= 0.84 || !hasInstitutionData(left) || !hasInstitutionData(right)
-      : (institutionScore(left, query.institutionName) >= 0.72 && institutionScore(right, query.institutionName) >= 0.72) ||
-        sameInstitutionScore(left, right) >= 0.84;
+  const institutionAligned = institutionsAligned(left, right, query.institutionName || '');
   const fieldAligned =
     !query.researchField || (fieldScore(left, query.researchField) >= 0.35 && fieldScore(right, query.researchField) >= 0.35);
-  const fragmentaryRecord = (author) => {
-    const works = author.works_count || 0;
-    const citations = author.cited_by_count || 0;
-    const hIndex = author.summary_stats?.h_index || 0;
-    return works <= 8 || (hIndex <= 5 && citations <= 500);
-  };
-  const fragmentBridge = strongNameAnchor && fieldAligned && (fragmentaryRecord(left) || fragmentaryRecord(right));
 
-  return sameLastName && sameInitial && fieldAligned && (sharedExternalIdentity(left, right) || (exactQueryAligned && institutionAligned) || fragmentBridge);
+  return sameLastName && sameInitial && institutionAligned && fieldAligned && (sharedExternalIdentity(left, right) || exactQueryAligned);
 }
 
 function mergeMatchEntries(left, right, query) {

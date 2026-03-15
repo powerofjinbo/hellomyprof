@@ -382,7 +382,7 @@ async function probeDirectGoogleScholar({ name, institution, fetchImpl }) {
         status: 'blocked',
         searchUrl: paperSearchUrl,
         authorSearchUrl,
-        note: 'Direct Scholar author search was redirected into a Google login flow from this environment.',
+        note: 'Direct Scholar author search was redirected into a Google login flow from this environment. Configure SEARCHAPI_API_KEY to enable structured Scholar lookups.',
       };
     }
 
@@ -394,7 +394,7 @@ async function probeDirectGoogleScholar({ name, institution, fetchImpl }) {
         status: 'blocked',
         searchUrl: paperSearchUrl,
         authorSearchUrl,
-        note: 'Google Scholar blocked automated requests from this environment.',
+        note: 'Google Scholar blocked automated requests from this environment. Configure SEARCHAPI_API_KEY to enable structured Scholar lookups.',
       };
     }
 
@@ -404,7 +404,7 @@ async function probeDirectGoogleScholar({ name, institution, fetchImpl }) {
       status: 'unavailable',
       searchUrl: paperSearchUrl,
       authorSearchUrl,
-      note: 'Direct Scholar access responded, but no structured profile data could be extracted safely.',
+      note: 'Direct Scholar access responded, but no structured profile data could be extracted safely. Configure SEARCHAPI_API_KEY to enable structured Scholar lookups.',
     };
   } catch (error) {
     return {
@@ -413,7 +413,10 @@ async function probeDirectGoogleScholar({ name, institution, fetchImpl }) {
       status: 'error',
       searchUrl: paperSearchUrl,
       authorSearchUrl,
-      note: error instanceof Error ? error.message : 'Direct Scholar lookup failed unexpectedly.',
+      note:
+        error instanceof Error
+          ? `${error.message} Configure SEARCHAPI_API_KEY to enable structured Scholar lookups.`
+          : 'Direct Scholar lookup failed unexpectedly. Configure SEARCHAPI_API_KEY to enable structured Scholar lookups.',
     };
   }
 }
