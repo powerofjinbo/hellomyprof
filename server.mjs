@@ -8,6 +8,8 @@ import { buildAuthorMatches, dedupeWorks, mergeAuthorProfiles } from './src/auth
 import { buildCollaborationInsights } from './src/collaboration-insights.mjs';
 import { lookupInspireIdentityEvidence } from './src/inspire-evidence.mjs';
 import { enrichProfessorWebPresence } from './src/web-enrichment.mjs';
+import { lookupSemanticScholar } from './src/semantic-scholar.mjs';
+import { enrichTopWorksWithCrossref } from './src/crossref-enrichment.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4173);
@@ -175,6 +177,38 @@ function buildScholarSearchUrl(author, query) {
   return `https://scholar.google.com/scholar?q=${encodeURIComponent(terms)}`;
 }
 
+function buildGoogleScholarProfileUrl(author) {
+  const name = author.display_name || '';
+  return `https://scholar.google.com/citations?view_op=search_authors&mauthors=${encodeURIComponent(name)}`;
+}
+
+function normalizeOrcidUrl(orcid) {
+  if (!orcid) return null;
+  const bare = String(orcid).replace(/^https?:\/\/orcid\.org\//i, '').trim();
+  if (!bare) return null;
+  return `https://orcid.org/${bare}`;
+}
+
+function buildExternalProfiles(author, query, { inspire, semanticScholar, dblpProfileUrl = null }) {
+  const profiles = {
+    inspire: inspire || null,
+    semanticScholar: semanticScholar || null,
+    scholarSearchUrl: buildScholarSearchUrl(author, query),
+    scholarProfileUrl: buildGoogleScholarProfileUrl(author),
+    orcidUrl: normalizeOrcidUrl(author.ids?.orcid),
+    openalex: author.id || null,
+    homepage: author.homepage_url || semanticScholar?.homepage || null,
+    dblpProfileUrl: dblpProfileUrl || null,
+  };
+
+  const openAlexIds = author.ids || {};
+  if (openAlexIds.scopus) {
+    profiles.scopusUrl = `https://www.scopus.com/authid/detail.uri?authorId=${String(openAlexIds.scopus).split('/').pop()}`;
+  }
+
+  return profiles;
+}
+
 async function handleSearch(request, response) {
   const query = normalizeQuery(await readJsonBody(request));
   if (!query.professorName) {
@@ -218,12 +252,25 @@ async function handleReport(request, response) {
     institution: pickInstitution(author, query.institutionName || ''),
     orcid: author.ids?.orcid || '',
   }).catch(() => null);
-  const collaborationInsights = await buildCollaborationInsights({
-    author,
-    works,
-    fetchAuthorById: (collaboratorId) => fetchAuthorDetails(collaboratorId, query),
-    fetchIdentityEvidence: ({ name, institution, orcid }) => lookupInspireIdentityEvidence({ name, institution, orcid }),
+  const [collaborationInsights, semanticScholarProfile] = await Promise.all([
+    buildCollaborationInsights({
+      author,
+      works,
+      fetchAuthorById: (collaboratorId) => fetchAuthorDetails(collaboratorId, query),
+      fetchIdentityEvidence: ({ name, institution, orcid }) => lookupInspireIdentityEvidence({ name, institution, orcid }),
+    }),
+    lookupSemanticScholar({
+      name: author.display_name,
+      orcid: author.ids?.orcid || '',
+    }).catch(() => null),
+  ]);
+
+  const externalProfiles = buildExternalProfiles(author, query, {
+    inspire: inspireProfile,
+    semanticScholar: semanticScholarProfile,
+    dblpProfileUrl: websiteSignals?.dblpProfileUrl || null,
   });
+
   const report = evaluateProfessor({
     author,
     works,
@@ -232,11 +279,10 @@ async function handleReport(request, response) {
     institutionHint: query.institutionName,
     websiteSignals,
     collaborationInsights,
-    externalProfiles: {
-      inspire: inspireProfile,
-      scholarSearchUrl: buildScholarSearchUrl(author, query),
-    },
+    externalProfiles,
   });
+
+  report.topWorks = await enrichTopWorksWithCrossref(report.topWorks).catch(() => report.topWorks);
 
   reportCache.set(cacheKey, report);
   json(response, 200, { report });

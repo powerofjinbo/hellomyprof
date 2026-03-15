@@ -588,6 +588,15 @@ function buildTrackNarrative(track, score) {
   return 'Current doctoral signal is limited relative to stronger peers in the same field.';
 }
 
+function normalizeDoi(doi) {
+  if (!doi) return null;
+  const raw = String(doi).trim();
+  if (raw.startsWith('https://doi.org/')) return raw;
+  if (raw.startsWith('http://doi.org/')) return raw.replace('http://', 'https://');
+  if (raw.startsWith('10.')) return `https://doi.org/${raw}`;
+  return null;
+}
+
 export function pickTopWorks(works, authorRef, limit = 5) {
   return works
     .filter((work) => authorshipFor(work, authorRef))
@@ -616,7 +625,7 @@ export function pickTopWorks(works, authorRef, limit = 5) {
       link:
         work.primary_location?.landing_page_url ||
         work.best_oa_location?.landing_page_url ||
-        work.ids?.doi ||
+        normalizeDoi(work.ids?.doi || work.doi) ||
         work.id,
     }));
 }
