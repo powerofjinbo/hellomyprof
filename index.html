@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Professor Research Opportunity Evaluator</title>
+    <meta
+      name="description"
+      content="Evaluate professor research opportunities for undergraduate, master's, and PhD students using public publication signals and explicit manual-review guidance."
+    />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Manrope:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./src/app.css" />
+  </head>
+  <body>
+    <div class="page-glow page-glow-left" aria-hidden="true"></div>
+    <div class="page-glow page-glow-right" aria-hidden="true"></div>
+
+    <header class="site-header">
+      <div class="brand-block">
+        <p class="eyebrow">Academic due diligence, made legible</p>
+        <h1>Professor Research Opportunity Evaluator</h1>
+        <p class="lead">
+          Search a professor by name and research area, then review an evidence-first report on
+          publication cadence, paper quality, collaboration patterns, recurring coauthors, and
+          source integrity.
+        </p>
+      </div>
+      <div class="hero-note">
+        <p class="note-label">Data source</p>
+        <p class="note-value">OpenAlex, ORCID, DBLP, and verified institutional pages</p>
+        <p class="note-copy">
+          This tool prioritizes structured publication evidence and shows where any inference still
+          begins.
+        </p>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="control-panel">
+        <div class="panel-card form-card">
+          <div class="section-heading">
+            <p class="eyebrow">Search</p>
+            <h2>Build an evaluation report</h2>
+          </div>
+
+          <form id="search-form" class="search-form">
+            <label class="field">
+              <span>Professor name</span>
+              <input id="professor-name" name="professorName" type="text" placeholder="Fei-Fei Li" required />
+            </label>
+
+            <label class="field">
+              <span>Research area</span>
+              <input
+                id="research-field"
+                name="researchField"
+                type="text"
+                placeholder="Computer vision, machine learning, NLP..."
+              />
+            </label>
+
+            <label class="field">
+              <span>Institution hint</span>
+              <input id="institution-name" name="institutionName" type="text" placeholder="Stanford University" />
+            </label>
+
+            <details class="advanced-panel">
+              <summary>Advanced API settings</summary>
+              <div class="advanced-grid">
+                <label class="field">
+                  <span>OpenAlex email</span>
+                  <input id="api-email" name="apiEmail" type="email" placeholder="you@example.com" />
+                </label>
+
+                <label class="field">
+                  <span>OpenAlex API key</span>
+                  <input id="api-key" name="apiKey" type="password" placeholder="Optional" />
+                </label>
+              </div>
+              <p class="micro-copy">
+                Optional values stay in your browser session and are appended only to your own API
+                requests.
+              </p>
+            </details>
+
+            <button id="search-button" class="primary-button" type="submit">Generate evaluation</button>
+          </form>
+
+          <div class="example-strip">
+            <p class="example-label">Examples</p>
+            <div class="example-buttons">
+              <button type="button" class="example-chip" data-name="Fei-Fei Li" data-field="computer vision" data-institution="Stanford University">
+                Fei-Fei Li
+              </button>
+              <button type="button" class="example-chip" data-name="Daphne Koller" data-field="machine learning" data-institution="Stanford University">
+                Daphne Koller
+              </button>
+              <button type="button" class="example-chip" data-name="Percy Liang" data-field="natural language processing" data-institution="Stanford University">
+                Percy Liang
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-card methodology-card">
+          <div class="section-heading">
+            <p class="eyebrow">Rubric</p>
+            <h2>What the report measures</h2>
+          </div>
+
+          <div class="rubric-grid">
+            <article class="rubric-item">
+              <h3>Influence</h3>
+              <p>Uses citation volume, h-index, and long-run publication footprint.</p>
+            </article>
+            <article class="rubric-item">
+              <h3>Paper quality</h3>
+              <p>Emphasizes field-normalized citation percentile, top-10% share, and core venues.</p>
+            </article>
+            <article class="rubric-item">
+              <h3>Publication cadence</h3>
+              <p>Tracks recent output, recency of publications, and year-by-year research tempo.</p>
+            </article>
+            <article class="rubric-item">
+              <h3>Collaboration network</h3>
+              <p>Maps recurring collaborators, notable senior collaborators, and recent coauthor structure.</p>
+            </article>
+            <article class="rubric-item">
+              <h3>Evidence integrity</h3>
+              <p>Separates structured publication evidence from supporting website evidence and marks the boundary explicitly.</p>
+            </article>
+          </div>
+
+          <div class="limitations-box">
+            <p class="limitations-title">Important limitation</p>
+            <p>
+              Student status, advising quality, and hidden lab structure cannot be proven automatically
+              unless explicit public evidence exists. The report therefore prefers conservative signals
+              over speculative claims.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="results-panel">
+        <div id="status-banner" class="status-banner" aria-live="polite">
+          Enter a professor name to generate an English-language research evidence report.
+        </div>
+
+        <div id="match-panel" class="panel-card hidden"></div>
+        <div id="report-panel" class="panel-card report-card hidden"></div>
+        <div id="comparison-panel" class="panel-card hidden"></div>
+      </section>
+    </main>
+
+    <script type="module" src="./src/app.mjs"></script>
+  </body>
+</html>

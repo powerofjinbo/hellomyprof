@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Professor Evaluator">
+  <rect width="64" height="64" rx="18" fill="#9f3d21" />
+  <circle cx="48" cy="16" r="10" fill="#1d5f5d" opacity="0.9" />
+  <path d="M16 18h24c7.732 0 14 6.268 14 14v0c0 7.732-6.268 14-14 14H28l-10 8V18Z" fill="#f6f1e8" opacity="0.95" />
+  <path d="M24 28h14c3.314 0 6 2.686 6 6v0c0 3.314-2.686 6-6 6H30l-6 5V28Z" fill="#9f3d21" />
+</svg>
