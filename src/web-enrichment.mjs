@@ -749,103 +749,24 @@ function aggregateSignals(seedSources, pages, institutionDomains) {
       kind: page.analysis.kind,
       publishedTime: page.publishedTime,
       snippets: page.analysis.snippets.slice(0, 3),
-      signalSummary: `${page.analysis.kind} page · ${page.analysis.counts.students} student mentions · ${page.analysis.counts.join} opportunity mentions`,
+      signalSummary: `${page.analysis.kind} page · verified institution-domain evidence`,
     };
   });
 
-  const officialProfileFound = verifiedSources.length > 0;
   const coverageCategories = Object.values(presence).reduce((sum, value) => sum + value, 0);
-  const websiteVisibility = scoreToPercent(
-    officialProfileFound * 0.28 +
-      presence.personal * 0.2 +
-      presence.lab * 0.22 +
-      presence.people * 0.14 +
-      presence.publications * 0.1 +
-      presence.opportunities * 0.06,
-  );
-  const websiteFreshness = scoreToPercent(
-    clamp(recentYears.size / 3) * 0.6 +
-      clamp(counts.news / 4) * 0.2 +
-      clamp(counts.publications / 8) * 0.2,
-  );
-  const studentOpportunity = scoreToPercent(
-    clamp(counts.students / 10) * 0.18 +
-      clamp(counts.join / 5) * 0.18 +
-      clamp(counts.undergraduate / 4) * 0.16 +
-      clamp(counts.masters / 4) * 0.12 +
-      clamp(counts.phd / 6) * 0.18 +
-      presence.people * 0.1 +
-      presence.publications * 0.08,
-  );
   const evidenceCoverage = scoreToPercent(
     clamp(coverageCategories / 5) * 0.42 +
       clamp(evidencePages.length / 4) * 0.28 +
-      clamp(counts.students / 10) * 0.14 +
-      clamp(counts.join / 4) * 0.08 +
+      clamp(verifiedSources.length / 3) * 0.14 +
+      clamp(evidencePages.filter((page) => page.kind === 'publications').length / 2) * 0.08 +
       clamp(recentYears.size / 3) * 0.08,
   );
   const evidenceConfidence = scoreToPercent(
     clamp(verifiedSources.length / 2) * 0.42 +
-      clamp(evidencePages.length / 4) * 0.3 +
-      clamp(evidencePages.filter((page) => page.snippets.length).length / 3) * 0.16 +
-      clamp(coverageCategories / 5) * 0.12,
+    clamp(evidencePages.length / 4) * 0.3 +
+    clamp(evidencePages.filter((page) => page.snippets.length).length / 3) * 0.16 +
+    clamp(coverageCategories / 5) * 0.12,
   );
-  const trackSignals = {
-    undergraduate: scoreToPercent(
-      clamp(counts.undergraduate / 3) * 0.45 +
-        clamp(counts.join / 4) * 0.15 +
-        presence.people * 0.12 +
-        presence.publications * 0.1 +
-        clamp(counts.students / 8) * 0.1 +
-        clamp(websiteFreshness / 100) * 0.08,
-    ),
-    masters: scoreToPercent(
-      clamp(counts.masters / 3) * 0.28 +
-        clamp(counts.join / 4) * 0.16 +
-        presence.people * 0.12 +
-        presence.publications * 0.12 +
-        clamp(counts.students / 8) * 0.1 +
-        clamp(counts.phd / 5) * 0.12 +
-        clamp(websiteFreshness / 100) * 0.1,
-    ),
-    phd: scoreToPercent(
-      clamp(counts.phd / 5) * 0.32 +
-        clamp(counts.join / 4) * 0.16 +
-        presence.lab * 0.1 +
-        presence.people * 0.12 +
-        presence.publications * 0.12 +
-        clamp(counts.postdocs / 3) * 0.08 +
-        clamp(websiteFreshness / 100) * 0.1,
-    ),
-  };
-
-  const evidenceHistogram = [
-    {
-      key: 'verifiedPages',
-      label: 'Verified pages',
-      value: scoreToPercent(clamp(evidencePages.length / 4)),
-    },
-    {
-      key: 'coverage',
-      label: 'Coverage',
-      value: evidenceCoverage,
-    },
-    {
-      key: 'teamSignal',
-      label: 'Team signal',
-      value: scoreToPercent(clamp(counts.students / 10)),
-    },
-    {
-      key: 'Opportunity',
-      label: 'Opportunity signal',
-      value: scoreToPercent(clamp(counts.join / 5)),
-    },
-    {
-      key: 'freshness',
-      label: 'Freshness',
-      value: scoreToPercent(clamp(recentYears.size / 3)),
-    },
-  ];
 
   const verifiedFacts = [];
   if (verifiedSources.length) {
@@ -860,11 +781,11 @@ function aggregateSignals(seedSources, pages, institutionDomains) {
   if (presence.people) {
     const peoplePage = verifiedPages.find((page) => page.analysis.kind === 'people');
     verifiedFacts.push({
-      label: 'Verified people or roster page',
+      label: 'Verified team or people page',
       value: 'Present',
       sourceUrl: peoplePage?.url || verifiedSources[0]?.url || '',
       sourceLabel: peoplePage?.title || verifiedSources[0]?.label || 'Verified source',
-      detail: firstSnippet(peoplePage, 'The verified page exposes current team, member, or student structure.'),
+      detail: firstSnippet(peoplePage, 'The verified page exposes current team or people structure.'),
     });
   }
   if (counts.join > 0) {
@@ -899,14 +820,17 @@ function aggregateSignals(seedSources, pages, institutionDomains) {
   }
 
   const highlights = [];
+  if (presence.personal) {
+    highlights.push('A verified professor homepage was found on an institution-controlled domain.');
+  }
   if (presence.lab) {
     highlights.push('A verified lab or group page was found on an institution-controlled domain.');
   }
-  if (presence.people) {
-    highlights.push('Verified pages expose student, team, or member listings rather than only profile metadata.');
-  }
   if (counts.join > 0) {
     highlights.push('Verified pages contain explicit join, apply, or research-opportunity language.');
+  }
+  if (presence.publications) {
+    highlights.push('A verified publications page was found on an institution-controlled domain.');
   }
   if (recentYears.size) {
     highlights.push(`Verified institutional pages contain recent year markers: ${Array.from(recentYears).sort().join(', ')}.`);
@@ -914,34 +838,34 @@ function aggregateSignals(seedSources, pages, institutionDomains) {
 
   const caveats = [];
   if (!verifiedSources.length) {
-    caveats.push('No verified institution-domain professor or lab page was found automatically, so website-derived scoring stays conservative.');
-  }
-  if (!presence.people) {
-    caveats.push('No verified student or team roster page was found on the fetched institution-controlled pages.');
-  }
-  if (!counts.undergraduate) {
-    caveats.push('Verified pages do not explicitly mention undergraduate research participation.');
+    caveats.push('No verified institution-domain professor or lab page was found automatically, so website evidence is absent from this report.');
   }
   if (supportingPages.length) {
-    caveats.push('Supporting pages were found, but they are excluded from core website scoring unless they live on verified institution domains.');
+    caveats.push('Supporting external pages were found, but they stay outside the verified source boundary.');
+  }
+  if (verifiedPages.length && !recentYears.size) {
+    caveats.push('Verified pages were found, but they do not expose obvious recent-year markers in the fetched sample.');
   }
 
   const inferenceBoundaries = [
     'Publication influence, quality, and output come from OpenAlex metadata rather than professor websites.',
-    'Website-derived metrics use only verified institution-domain professor or lab pages for core scoring.',
-    'Supporting external pages can still be shown, but they do not drive objective website scores.',
-    'Undergraduate publication access cannot be proven automatically and must remain a manual check.',
+    'Institutional webpages are retained only as a verified source boundary, not as a primary opportunity-scoring signal.',
+    'Supporting external pages can still be shown, but they do not drive objective research metrics.',
+    'Collaborator student status is labeled only when an external record exposes explicit career-stage metadata.',
   ];
 
   return {
     metrics: {
-      websiteVisibility,
-      websiteFreshness,
-      studentOpportunity,
       evidenceCoverage,
       verificationConfidence: evidenceConfidence,
     },
-    trackSignals,
+    boundaryStats: {
+      verifiedSourceCount: verifiedSources.length,
+      verifiedPageCount: evidencePages.length,
+      verifiedSnippetCount: evidencePages.reduce((sum, page) => sum + page.snippets.length, 0),
+      recentYearMarkerCount: recentYears.size,
+      pageDiversity: coverageCategories,
+    },
     confidence: evidenceConfidence,
     institutionDomains,
     officialSources: verifiedSources.map((item) => ({
@@ -972,7 +896,6 @@ function aggregateSignals(seedSources, pages, institutionDomains) {
       snippets: page.analysis.snippets.slice(0, 2),
       signalSummary: `${page.analysis.kind} page · supporting only`,
     })),
-    evidenceHistogram,
     verifiedFacts: verifiedFacts.slice(0, 6),
     highlights: highlights.slice(0, 4),
     caveats: caveats.slice(0, 4),
@@ -1032,16 +955,15 @@ export async function enrichProfessorWebPresence({ author, query }) {
   } catch {
     return {
       metrics: {
-        websiteVisibility: 0,
-        websiteFreshness: 0,
-        studentOpportunity: 0,
         evidenceCoverage: 0,
         verificationConfidence: 0,
       },
-      trackSignals: {
-        undergraduate: 0,
-        masters: 0,
-        phd: 0,
+      boundaryStats: {
+        verifiedSourceCount: 0,
+        verifiedPageCount: 0,
+        verifiedSnippetCount: 0,
+        recentYearMarkerCount: 0,
+        pageDiversity: 0,
       },
       confidence: 0,
       institutionDomains: [],
@@ -1051,7 +973,6 @@ export async function enrichProfessorWebPresence({ author, query }) {
       pages: [],
       verifiedPages: [],
       supportingPages: [],
-      evidenceHistogram: [],
       verifiedFacts: [],
       highlights: [],
       caveats: ['Website enrichment failed for this profile, so the report falls back to publication metadata only.'],

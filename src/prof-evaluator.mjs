@@ -265,12 +265,25 @@ function computeFieldAlignmentForRanking(author, researchField) {
   return computeFieldAlignment(author, [], researchField);
 }
 
-function authorIdMatch(left, right) {
-  return String(left || '').split('/').pop() === String(right || '').split('/').pop();
+function normalizeAuthorId(value) {
+  return String(value || '').split('/').pop();
 }
 
-function authorshipFor(work, authorId) {
-  return (work.authorships || []).find((authorship) => authorIdMatch(authorship.author?.id, authorId));
+function authorIdSet(authorRef) {
+  if (Array.isArray(authorRef)) {
+    return new Set(authorRef.map(normalizeAuthorId).filter(Boolean));
+  }
+
+  if (typeof authorRef === 'object' && authorRef) {
+    return new Set([normalizeAuthorId(authorRef.id), ...((authorRef.mergedAuthorIds || []).map(normalizeAuthorId))].filter(Boolean));
+  }
+
+  return new Set([normalizeAuthorId(authorRef)].filter(Boolean));
+}
+
+function authorshipFor(work, authorRef) {
+  const ids = authorIdSet(authorRef);
+  return (work.authorships || []).find((authorship) => ids.has(normalizeAuthorId(authorship.author?.id)));
 }
 
 function meanFwci(works) {
@@ -293,8 +306,8 @@ function share(works, predicate) {
   return works.filter(predicate).length / works.length;
 }
 
-export function summarizeWorks(works, authorId) {
-  const relevantWorks = works.filter((work) => authorshipFor(work, authorId));
+export function summarizeWorks(works, authorRef) {
+  const relevantWorks = works.filter((work) => authorshipFor(work, authorRef));
   if (!relevantWorks.length) {
     return {
       sampleSize: 0,
@@ -311,7 +324,7 @@ export function summarizeWorks(works, authorId) {
     };
   }
 
-  const authorRows = relevantWorks.map((work) => authorshipFor(work, authorId));
+  const authorRows = relevantWorks.map((work) => authorshipFor(work, authorRef));
   const meanTeamSize = average(relevantWorks.map((work) => work.authorships?.length || 1));
   const latestPublication = relevantWorks
     .map((work) => work.publication_date || `${work.publication_year || ''}-01-01`)
@@ -500,10 +513,6 @@ function buildRisks(metrics, workSummary, fieldFitScore, websiteSignals, collabo
     risks.push('Recent publishing cadence is modest, which may limit near-term project velocity or submission opportunities.');
   }
 
-  if (metrics.mentorshipProxy < 58) {
-    risks.push('Direct mentoring signal is limited in the metadata. Expect to manually confirm project ownership and advisor availability.');
-  }
-
   if (workSummary.meanTeamSize >= 9) {
     risks.push('Large team sizes suggest that day-to-day supervision may be delegated or collaboration-heavy.');
   }
@@ -512,16 +521,8 @@ function buildRisks(metrics, workSummary, fieldFitScore, websiteSignals, collabo
     risks.push('The recent work sample is not consistently high in normalized citation percentile or top-tier venue proxy metrics.');
   }
 
-  if ((websiteSignals?.confidence || 0) > 0 && metrics.websiteVisibility < 45) {
-    risks.push('Official website visibility is limited, making it harder to validate current lab structure, openings, or student rosters.');
-  }
-
-  if ((websiteSignals?.confidence || 0) > 0 && metrics.websiteFreshness < 45) {
-    risks.push('The fetched website pages look stale, so current opportunity signals may lag behind the lab’s real state.');
-  }
-
   if ((websiteSignals?.confidence || 0) < 40) {
-    risks.push('Verified website coverage is limited, so student-opportunity conclusions should be treated as conservative and incomplete.');
+    risks.push('Verified external-source coverage is limited, so source-boundary evidence stays thin for this report.');
   }
 
   if (metrics.seniorCollaboratorSignal < 35) {
@@ -537,14 +538,10 @@ function buildRisks(metrics, workSummary, fieldFitScore, websiteSignals, collabo
 
 function buildManualChecks(metrics, workSummary, author, audience, websiteSignals, institutionHint = '') {
   const checks = [
-    "Check the lab website for current students, project openings, and whether undergraduates or taught-master's students are explicitly listed.",
-    'Inspect 3 to 5 recent papers and see whether junior student coauthors appear repeatedly.',
+    'Inspect 3 to 5 recent papers and identify which collaborators recur over time.',
+    'Verify which collaborators are students, postdocs, or faculty using explicit public records before drawing conclusions.',
     'Verify response time, funding availability, and day-to-day supervision expectations before reaching out.',
   ];
-
-  if (metrics.mentorshipProxy < 62) {
-    checks.push('Ask who scopes projects and how often the professor meets directly with students.');
-  }
 
   if (workSummary.meanTeamSize >= 8) {
     checks.push('Confirm whether new students own independent subproblems or mainly join existing large-team pipelines.');
@@ -554,16 +551,8 @@ function buildManualChecks(metrics, workSummary, author, audience, websiteSignal
     checks.push('Current affiliation is not a standard university department. Verify formal advising and thesis supervision structure.');
   }
 
-  if (audience === 'undergraduate' || audience === 'all') {
-    checks.push('For undergraduate plans, manually verify whether the group has recent undergraduate coauthors. This is not directly observable in OpenAlex.');
-  }
-
   if (!(websiteSignals?.officialSources || []).length) {
     checks.push('No official professor or lab page was recovered automatically. Search the university site manually before making a decision.');
-  }
-
-  if ((websiteSignals?.confidence || 0) > 0 && metrics.studentOpportunity < 45) {
-    checks.push("The website evidence is thin on concrete student-opportunity language. Verify whether new students are actually being recruited this year.");
   }
 
   return Array.from(new Set(checks)).slice(0, 5);
@@ -599,9 +588,9 @@ function buildTrackNarrative(track, score) {
   return 'Current doctoral signal is limited relative to stronger peers in the same field.';
 }
 
-export function pickTopWorks(works, authorId, limit = 5) {
+export function pickTopWorks(works, authorRef, limit = 5) {
   return works
-    .filter((work) => authorshipFor(work, authorId))
+    .filter((work) => authorshipFor(work, authorRef))
     .slice()
     .sort((left, right) => {
       const leftScore =
@@ -639,9 +628,13 @@ function summaryString(data) {
     `Research focus: ${data.primaryTopic}`,
     `Influence: ${data.metrics.influence}/100 | Quality: ${data.metrics.paperQuality}/100 | Publication cadence: ${data.metrics.momentum}/100`,
     `Repeat collaboration: ${data.metrics.repeatCollaboration}/100 | Senior-collab signal: ${data.metrics.seniorCollaboratorSignal}/100 | Network breadth: ${data.metrics.collaborationBreadth}/100`,
-    `Evidence coverage: ${data.metrics.evidenceCoverage}/100 | Verification confidence: ${data.metrics.verificationConfidence}/100`,
-    `Key caution: collaborator seniority can be estimated from public author profiles, but student status cannot be confirmed automatically without explicit evidence.`,
+    `Source confidence: ${data.confidenceScore}/100 | Verified source coverage: ${data.metrics.evidenceCoverage}/100`,
+    `Key caution: coauthor identity labels remain unverified unless an external record exposes explicit career-stage metadata.`,
   ];
+
+  if (data.author.mergedProfileCount > 1) {
+    lines.push(`Identity resolution: merged ${data.author.mergedProfileCount} OpenAlex profiles for this report.`);
+  }
 
   return lines.join('\n');
 }
@@ -705,18 +698,6 @@ const PROFILE_DIMENSIONS = [
     group: 'core',
     accessor: (report) => report.metrics.collaborationBreadth,
   },
-  {
-    key: 'metrics.evidenceCoverage',
-    label: 'Evidence coverage',
-    group: 'core',
-    accessor: (report) => report.metrics.evidenceCoverage,
-  },
-  {
-    key: 'metrics.verificationConfidence',
-    label: 'Verification confidence',
-    group: 'core',
-    accessor: (report) => report.metrics.verificationConfidence,
-  },
 ];
 
 export function buildScoreProfile(report) {
@@ -741,8 +722,9 @@ export function compareProfessorReports(reports) {
           overallScore: report.overallScore,
           confidenceScore: report.confidenceScore,
           fieldFit: report.metrics.fieldFit,
+          momentum: report.metrics.momentum,
           repeatCollaboration: report.metrics.repeatCollaboration,
-          evidenceCoverage: report.metrics.evidenceCoverage,
+          seniorCollaboratorSignal: report.metrics.seniorCollaboratorSignal,
           queryContext: report.queryContext || null,
         };
       })
@@ -776,11 +758,12 @@ export function evaluateProfessor({
   institutionHint = '',
   websiteSignals = null,
   collaborationInsights = null,
+  externalProfiles = null,
 }) {
   const institution = pickInstitutionForHint(author, institutionHint);
   const primaryTopic = firstKnownTopic(author);
   const outputStats = recentOutputStats(author);
-  const workSummary = summarizeWorks(works, author.id);
+  const workSummary = summarizeWorks(works, author);
   const fieldFit = scoreToPercent(computeFieldAlignment(author, works, researchField));
   const influence = scoreInfluence(author);
   const paperQuality = scorePaperQuality(workSummary);
@@ -788,9 +771,6 @@ export function evaluateProfessor({
   const momentum = scoreMomentum(workSummary, outputStats);
   const mentorshipProxy = scoreMentorshipProxy(author, workSummary, outputStats, institutionHint);
   const websiteMetrics = websiteSignals?.metrics || {
-    websiteVisibility: 0,
-    websiteFreshness: 0,
-    studentOpportunity: 0,
     evidenceCoverage: 0,
     verificationConfidence: 0,
   };
@@ -801,23 +781,6 @@ export function evaluateProfessor({
     collaborationBreadth: 0,
     topPartnerConcentration: 0,
   };
-  const trackScores = scoreTrackScores({
-    influence,
-    quality: paperQuality,
-    volume: outputVolume,
-    momentum,
-    mentorship: mentorshipProxy,
-    fieldFit,
-    websiteSignals,
-  });
-
-  const audienceWeights = {
-    all: { undergraduate: 0.2, masters: 0.3, phd: 0.5 },
-    undergraduate: { undergraduate: 0.55, masters: 0.25, phd: 0.2 },
-    masters: { undergraduate: 0.2, masters: 0.55, phd: 0.25 },
-    phd: { undergraduate: 0.1, masters: 0.2, phd: 0.7 },
-  };
-  const weights = audienceWeights[audience] || audienceWeights.all;
   const overallScore = Math.round(
     influence * 0.23 +
       paperQuality * 0.2 +
@@ -840,8 +803,7 @@ export function evaluateProfessor({
         45 +
         clamp(fieldFit / 100, 0.45, 1) * 20 +
         clamp(outputStats.timeline.some((item) => item.count > 0) ? 1 : 0, 0, 1) * 20 +
-        clamp(workSummary.latestPublicationDate ? 1 : 0, 0, 1) * 15 +
-        clamp((websiteSignals?.confidence || 0) / 100, 0, 1) * 10,
+        clamp(workSummary.latestPublicationDate ? 1 : 0, 0, 1) * 15,
     ),
   );
 
@@ -854,9 +816,6 @@ export function evaluateProfessor({
     mentorshipProxy,
     hIndex: author.summary_stats?.h_index || 0,
     worksCount: author.works_count || 0,
-    websiteVisibility: websiteMetrics.websiteVisibility,
-    websiteFreshness: websiteMetrics.websiteFreshness,
-    studentOpportunity: websiteMetrics.studentOpportunity,
     evidenceCoverage: websiteMetrics.evidenceCoverage,
     verificationConfidence: websiteMetrics.verificationConfidence,
     repeatCollaboration: collaborationMetrics.repeatCollaboration,
@@ -883,20 +842,15 @@ export function evaluateProfessor({
     confidenceScore,
     confidenceLabel: confidenceLabel(confidenceScore),
     metrics,
-    trackScores,
-    trackNarratives: {
-      undergraduate: buildTrackNarrative('undergraduate', trackScores.undergraduate),
-      masters: buildTrackNarrative('masters', trackScores.masters),
-      phd: buildTrackNarrative('phd', trackScores.phd),
-    },
-    strengths: buildStrengths(metrics, trackScores, websiteSignals, collaborationInsights),
+    strengths: buildStrengths(metrics, null, websiteSignals, collaborationInsights),
     risks: buildRisks(metrics, workSummary, fieldFit, websiteSignals, collaborationInsights),
     manualChecks: buildManualChecks(metrics, workSummary, author, audience, websiteSignals, institutionHint),
     timeline: outputStats.timeline,
     workSummary,
-    topWorks: pickTopWorks(works, author.id),
+    topWorks: pickTopWorks(works, author),
     webSignals: websiteSignals || null,
     collaborationInsights: collaborationInsights || null,
+    externalProfiles: externalProfiles || null,
   };
 
   result.summaryText = summaryString(result);

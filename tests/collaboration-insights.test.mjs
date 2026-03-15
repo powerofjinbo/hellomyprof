@@ -48,10 +48,22 @@ test('buildCollaborationInsights summarizes frequent and senior collaborators', 
         last_known_institutions: [{ display_name: 'Example Institute' }],
       };
     },
+    fetchIdentityEvidence: async ({ name }) => {
+      if (name === 'Grace Hopper') {
+        return {
+          label: 'junior',
+          source: 'INSPIRE-HEP',
+          sourceUrl: 'https://inspirehep.net/authors/123',
+          evidenceText: 'POSTDOC at Example Institute (historical)',
+        };
+      }
+      return null;
+    },
   });
 
   assert.equal(insights.topCollaborators[0].name, 'Grace Hopper');
   assert.equal(insights.topCollaborators[0].workCount, 2);
+  assert.equal(insights.topCollaborators[0].identityEvidence.label, 'junior');
   assert.ok(insights.metrics.repeatCollaboration > 0);
   assert.ok(insights.metrics.seniorCollaboratorSignal > 0);
   assert.equal(insights.histogram.length, 5);

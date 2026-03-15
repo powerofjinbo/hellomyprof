@@ -17,6 +17,10 @@ function authorIdKey(value) {
   return String(value || '').split('/').pop();
 }
 
+function authorIdSet(author) {
+  return new Set([authorIdKey(author?.id), ...((author?.mergedAuthorIds || []).map(authorIdKey))].filter(Boolean));
+}
+
 function pickInstitution(profile) {
   return (
     profile?.last_known_institutions?.[0]?.display_name ||
@@ -46,10 +50,10 @@ function isHighProfile(profile) {
   return hIndex >= 60 || citations >= 50000;
 }
 
-export async function buildCollaborationInsights({ author, works, fetchAuthorById }) {
-  const professorId = authorIdKey(author.id);
+export async function buildCollaborationInsights({ author, works, fetchAuthorById, fetchIdentityEvidence = null }) {
+  const professorIds = authorIdSet(author);
   const relevantWorks = works.filter((work) =>
-    (work.authorships || []).some((authorship) => authorIdKey(authorship.author?.id) === professorId),
+    (work.authorships || []).some((authorship) => professorIds.has(authorIdKey(authorship.author?.id))),
   );
 
   if (!relevantWorks.length) {
@@ -76,7 +80,7 @@ export async function buildCollaborationInsights({ author, works, fetchAuthorByI
     const publicationYear = Number(work.publication_year || currentYear);
     for (const authorship of work.authorships || []) {
       const collaboratorId = authorIdKey(authorship.author?.id);
-      if (!collaboratorId || collaboratorId === professorId) {
+      if (!collaboratorId || professorIds.has(collaboratorId)) {
         continue;
       }
 
@@ -132,6 +136,7 @@ export async function buildCollaborationInsights({ author, works, fetchAuthorByI
     id: collaborator.id,
     name: collaborator.name,
     institution: pickInstitution(profile),
+    orcid: profile?.ids?.orcid || '',
     workCount: collaborator.workCount,
     recentWorkCount: collaborator.recentWorkCount,
     lastYear: collaborator.lastYear,
@@ -141,9 +146,28 @@ export async function buildCollaborationInsights({ author, works, fetchAuthorByI
     highProfile: isHighProfile(profile),
     sampleTitles: collaborator.sampleTitles,
   }));
+  const identityEvidenceRows = fetchIdentityEvidence
+    ? await Promise.all(
+        topCollaboratorRows.map(async (collaborator) => {
+          try {
+            return await fetchIdentityEvidence({
+              name: collaborator.name,
+              institution: collaborator.institution,
+              orcid: collaborator.orcid,
+            });
+          } catch {
+            return null;
+          }
+        }),
+      )
+    : topCollaboratorRows.map(() => null);
+  const collaboratorRowsWithIdentity = topCollaboratorRows.map((collaborator, index) => ({
+    ...collaborator,
+    identityEvidence: identityEvidenceRows[index] || { label: 'unverified' },
+  }));
   const topCollaboratorIds = new Set(topCollaborators.map((item) => authorIdKey(item.id)));
-  const frequentCollaboratorRows = topCollaboratorRows.filter((item) => topCollaboratorIds.has(authorIdKey(item.id)));
-  const notableCollaborators = topCollaboratorRows
+  const frequentCollaboratorRows = collaboratorRowsWithIdentity.filter((item) => topCollaboratorIds.has(authorIdKey(item.id)));
+  const notableCollaborators = collaboratorRowsWithIdentity
     .filter((item) => item.highProfile)
     .sort((left, right) => (right.hIndex || 0) - (left.hIndex || 0) || (right.citations || 0) - (left.citations || 0))
     .slice(0, 4);
@@ -156,7 +180,7 @@ export async function buildCollaborationInsights({ author, works, fetchAuthorByI
   );
   const seniorCollaboratorSignal = scoreToPercent(
     clamp(highProfileRows.length / 3) * 0.55 +
-      clamp(average(topCollaboratorRows.map((item) => (item.hIndex || 0) / 80))) * 0.45,
+      clamp(average(collaboratorRowsWithIdentity.map((item) => (item.hIndex || 0) / 80))) * 0.45,
   );
   const recentCollaboration = scoreToPercent(
     clamp(average(topCollaborators.map((item) => item.recentWorkCount)) / 3) * 0.65 +
@@ -189,13 +213,17 @@ export async function buildCollaborationInsights({ author, works, fetchAuthorByI
   if (highProfileRows.length) {
     highlights.push(`${highProfileRows.length} collaborator${highProfileRows.length === 1 ? '' : 's'} in the sampled network clear the current high-profile threshold.`);
   }
+  const explicitStudentCount = frequentCollaboratorRows.filter((item) => item.identityEvidence?.label === 'explicit student').length;
+  if (explicitStudentCount) {
+    highlights.push(`${explicitStudentCount} frequent collaborator${explicitStudentCount === 1 ? '' : 's'} carry explicit student-stage evidence from external records.`);
+  }
   if (frequentCollaboratorRows[0]) {
     highlights.push(`${frequentCollaboratorRows[0].name} is the most frequent collaborator in the sampled work set.`);
   }
 
   const caveats = [];
   caveats.push('Collaborator prominence is inferred from OpenAlex profiles, not from a manual seniority label.');
-  caveats.push('Undergraduate status cannot be labeled automatically from coauthorship metadata alone without explicit external evidence.');
+  caveats.push('Coauthor identity labels appear only when an external source exposes explicit career-stage metadata; otherwise the label stays unverified.');
 
   return {
     metrics: {

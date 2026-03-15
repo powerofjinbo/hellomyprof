@@ -115,42 +115,25 @@ test('evaluation returns a strong phd score for a high-signal profile', () => {
     author,
     works,
     researchField: 'computer vision',
-    audience: 'phd',
   });
 
-  assert.ok(report.trackScores.phd >= 70);
+  assert.ok(report.overallScore >= 70);
   assert.ok(report.metrics.paperQuality >= 70);
-  assert.ok(report.manualChecks.some((item) => item.includes('undergraduate')));
+  assert.ok(report.summaryText.includes('overall signal'));
 });
 
-test('website evidence is surfaced as separate metrics and can lift student-facing tracks', () => {
+test('verified source evidence is surfaced separately from publication metrics', () => {
   const author = makeAuthor();
   const works = [makeWork(), makeWork({ display_name: 'Adaptive Visual Reasoning' }), makeWork({ display_name: 'Foundation Models for Vision' })];
 
-  const baseline = evaluateProfessor({
+  const report = evaluateProfessor({
     author,
     works,
     researchField: 'computer vision',
-    audience: 'undergraduate',
-  });
-
-  const websiteEnhanced = evaluateProfessor({
-    author,
-    works,
-    researchField: 'computer vision',
-    audience: 'undergraduate',
     websiteSignals: {
       metrics: {
-        websiteVisibility: 82,
-        websiteFreshness: 74,
-        studentOpportunity: 79,
         evidenceCoverage: 76,
         verificationConfidence: 68,
-      },
-      trackSignals: {
-        undergraduate: 90,
-        masters: 78,
-        phd: 70,
       },
       confidence: 68,
       officialSources: [{ label: 'Official page via DBLP', url: 'https://example.edu/~ada', source: 'DBLP' }],
@@ -161,12 +144,10 @@ test('website evidence is surfaced as separate metrics and can lift student-faci
     },
   });
 
-  assert.equal(websiteEnhanced.metrics.websiteVisibility, 82);
-  assert.equal(websiteEnhanced.metrics.studentOpportunity, 79);
-  assert.equal(websiteEnhanced.metrics.evidenceCoverage, 76);
-  assert.equal(websiteEnhanced.metrics.verificationConfidence, 68);
-  assert.ok(websiteEnhanced.trackScores.undergraduate >= baseline.trackScores.undergraduate);
-  assert.equal(websiteEnhanced.webSignals.officialSources.length, 1);
+  assert.equal(report.metrics.evidenceCoverage, 76);
+  assert.equal(report.metrics.verificationConfidence, 68);
+  assert.equal(report.webSignals.officialSources.length, 1);
+  assert.ok(report.summaryText.includes('Verified source coverage'));
 });
 
 test('comparison helper builds a leaderboard and dimension groups', () => {
@@ -192,7 +173,7 @@ test('comparison helper builds a leaderboard and dimension groups', () => {
 
   const comparison = compareProfessorReports([baseline, challenger]);
 
-  assert.equal(comparison.dimensions.length, 11);
+  assert.equal(comparison.dimensions.length, 9);
   assert.equal(comparison.leaderboard.length, 2);
   assert.equal(comparison.dimensions[0].label, 'Overall');
   assert.equal(comparison.leaderboard[0].name, baseline.author.display_name);

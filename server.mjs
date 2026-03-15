@@ -3,8 +3,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { evaluateProfessor, rankAuthors } from './src/prof-evaluator.mjs';
+import { evaluateProfessor, pickInstitution } from './src/prof-evaluator.mjs';
+import { buildAuthorMatches, dedupeWorks, mergeAuthorProfiles } from './src/author-merge.mjs';
 import { buildCollaborationInsights } from './src/collaboration-insights.mjs';
+import { lookupInspireIdentityEvidence } from './src/inspire-evidence.mjs';
 import { enrichProfessorWebPresence } from './src/web-enrichment.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -69,6 +71,18 @@ function normalizeQuery(body = {}) {
   };
 }
 
+function normalizeAuthorIds(body = {}) {
+  const authorIds = Array.isArray(body.authorIds)
+    ? body.authorIds.map((value) => String(value || '').trim()).filter(Boolean)
+    : [];
+  if (authorIds.length) {
+    return authorIds;
+  }
+
+  const authorId = String(body.authorId || '').trim();
+  return authorId ? [authorId] : [];
+}
+
 function appendApiSettings(url, query) {
   const nextUrl = new URL(url);
   if (query.apiEmail) {
@@ -127,11 +141,38 @@ async function fetchWorks(author, query) {
 
 function reportCacheKey(authorId, query) {
   return JSON.stringify({
-    authorId,
+    authorIds: Array.isArray(authorId) ? authorId.map((value) => String(value).split('/').pop()).sort() : [String(authorId).split('/').pop()],
     researchField: query.researchField,
     institutionName: query.institutionName,
     audienceLevel: query.audienceLevel,
   });
+}
+
+function withIdentityMetadata(author) {
+  return {
+    ...author,
+    mergedAuthorIds: author.mergedAuthorIds || [author.id],
+    mergedProfileCount: author.mergedProfileCount || 1,
+    profileType: author.profileType || ((author.mergedProfileCount || 1) > 1 ? 'merged' : 'single'),
+  };
+}
+
+async function hydrateAuthorSelection(authorIds, query) {
+  const profiles = await Promise.all(authorIds.map((authorId) => fetchAuthorDetails(authorId, query)));
+  if (profiles.length === 1) {
+    const author = withIdentityMetadata(profiles[0]);
+    const works = await fetchWorks(author, query);
+    return { author, works, sourceProfiles: profiles };
+  }
+
+  const works = dedupeWorks((await Promise.all(profiles.map((author) => fetchWorks(author, query)))).flat());
+  const author = withIdentityMetadata(mergeAuthorProfiles(profiles, works, query.professorName || ''));
+  return { author, works, sourceProfiles: profiles };
+}
+
+function buildScholarSearchUrl(author, query) {
+  const terms = [author.display_name, pickInstitution(author, query.institutionName || '')].filter(Boolean).join(' ');
+  return `https://scholar.google.com/scholar?q=${encodeURIComponent(terms)}`;
 }
 
 async function handleSearch(request, response) {
@@ -143,10 +184,10 @@ async function handleSearch(request, response) {
 
   const url = new URL('https://api.openalex.org/authors');
   url.searchParams.set('search', query.professorName);
-  url.searchParams.set('per-page', '8');
+  url.searchParams.set('per-page', '12');
 
   const data = await fetchJson(url, query);
-  const matches = rankAuthors(data.results || [], query).map((author) => ({
+  const matches = buildAuthorMatches(data.results || [], query).map((author) => ({
     ...author,
     matchScore: clamp(Number(author.matchScore || 0), 0, 100),
   }));
@@ -157,26 +198,31 @@ async function handleSearch(request, response) {
 async function handleReport(request, response) {
   const body = await readJsonBody(request);
   const query = normalizeQuery(body.query);
-  const authorId = String(body.authorId || '').trim();
+  const authorIds = normalizeAuthorIds(body);
 
-  if (!authorId) {
+  if (!authorIds.length) {
     errorJson(response, 400, 'Author ID is required.');
     return;
   }
 
-  const cacheKey = reportCacheKey(authorId, query);
+  const cacheKey = reportCacheKey(authorIds, query);
   if (reportCache.has(cacheKey)) {
     json(response, 200, { report: reportCache.get(cacheKey) });
     return;
   }
 
-  const author = await fetchAuthorDetails(authorId, query);
-  const works = await fetchWorks(author, query);
+  const { author, works } = await hydrateAuthorSelection(authorIds, query);
   const websiteSignals = await enrichProfessorWebPresence({ author, query, works });
+  const inspireProfile = await lookupInspireIdentityEvidence({
+    name: author.display_name,
+    institution: pickInstitution(author, query.institutionName || ''),
+    orcid: author.ids?.orcid || '',
+  }).catch(() => null);
   const collaborationInsights = await buildCollaborationInsights({
     author,
     works,
     fetchAuthorById: (collaboratorId) => fetchAuthorDetails(collaboratorId, query),
+    fetchIdentityEvidence: ({ name, institution, orcid }) => lookupInspireIdentityEvidence({ name, institution, orcid }),
   });
   const report = evaluateProfessor({
     author,
@@ -186,6 +232,10 @@ async function handleReport(request, response) {
     institutionHint: query.institutionName,
     websiteSignals,
     collaborationInsights,
+    externalProfiles: {
+      inspire: inspireProfile,
+      scholarSearchUrl: buildScholarSearchUrl(author, query),
+    },
   });
 
   reportCache.set(cacheKey, report);

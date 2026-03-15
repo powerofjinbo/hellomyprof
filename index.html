@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Professor Research Opportunity Evaluator</title>
+    <title>Professor Research Evidence Dashboard</title>
     <meta
       name="description"
-      content="Evaluate professor research opportunities for undergraduate, master's, and PhD students using public publication signals and explicit manual-review guidance."
+      content="Review professor publication cadence, paper quality, collaborator structure, and verified source boundaries using public academic metadata."
     />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -24,19 +24,19 @@
     <header class="site-header">
       <div class="brand-block">
         <p class="eyebrow">Academic due diligence, made legible</p>
-        <h1>Professor Research Opportunity Evaluator</h1>
+        <h1>Professor Research Evidence Dashboard</h1>
         <p class="lead">
-          Search a professor by name and research area, then review an evidence-first report on
-          publication cadence, paper quality, collaboration patterns, recurring coauthors, and
-          source integrity.
+          Search a professor by name and research area, then inspect a compact research-evidence
+          dashboard built from publication metadata, collaborator structure, and verified source
+          boundaries.
         </p>
       </div>
       <div class="hero-note">
         <p class="note-label">Data source</p>
-        <p class="note-value">OpenAlex, ORCID, DBLP, and verified institutional pages</p>
+        <p class="note-value">OpenAlex, ORCID, INSPIRE-HEP, DBLP, and verified institutional pages</p>
         <p class="note-copy">
-          This tool prioritizes structured publication evidence and shows where any inference still
-          begins.
+          Structured publication data leads. Institutional pages only define the verified source
+          boundary.
         </p>
       </div>
     </header>
@@ -46,7 +46,7 @@
         <div class="panel-card form-card">
           <div class="section-heading">
             <p class="eyebrow">Search</p>
-            <h2>Build an evaluation report</h2>
+            <h2>Build a research evidence panel</h2>
           </div>
 
           <form id="search-form" class="search-form">
@@ -89,7 +89,7 @@
               </p>
             </details>
 
-            <button id="search-button" class="primary-button" type="submit">Generate evaluation</button>
+            <button id="search-button" class="primary-button" type="submit">Generate dashboard</button>
           </form>
 
           <div class="example-strip">
@@ -111,7 +111,7 @@
         <div class="panel-card methodology-card">
           <div class="section-heading">
             <p class="eyebrow">Rubric</p>
-            <h2>What the report measures</h2>
+            <h2>What the dashboard measures</h2>
           </div>
 
           <div class="rubric-grid">
@@ -132,8 +132,8 @@
               <p>Maps recurring collaborators, notable senior collaborators, and recent coauthor structure.</p>
             </article>
             <article class="rubric-item">
-              <h3>Evidence integrity</h3>
-              <p>Separates structured publication evidence from supporting website evidence and marks the boundary explicitly.</p>
+              <h3>Identity evidence</h3>
+              <p>Marks a coauthor as student or junior only when an external record states that career stage explicitly.</p>
             </article>
           </div>
 
@@ -141,8 +141,8 @@
             <p class="limitations-title">Important limitation</p>
             <p>
               Student status, advising quality, and hidden lab structure cannot be proven automatically
-              unless explicit public evidence exists. The report therefore prefers conservative signals
-              over speculative claims.
+              unless explicit public evidence exists. The dashboard therefore prefers conservative
+              labels over speculative claims.
             </p>
           </div>
         </div>
@@ -150,7 +150,7 @@
 
       <section class="results-panel">
         <div id="status-banner" class="status-banner" aria-live="polite">
-          Enter a professor name to generate an English-language research evidence report.
+          Enter a professor name to generate an English-language research evidence dashboard.
         </div>
 
         <div id="match-panel" class="panel-card hidden"></div>

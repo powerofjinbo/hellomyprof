@@ -1,20 +1,21 @@
-# Professor Research Opportunity Evaluator
+# Professor Research Evidence Dashboard
 
-An English-language web app that helps students evaluate professor research opportunities across undergraduate, master's, and PhD pathways using public academic metadata.
+An English-language web app for objective professor due diligence using public academic metadata.
 
 The app is designed to answer a practical question:
 
-Which professor looks strongest for my academic trajectory, and why?
+What does the public research record actually show about this professor?
 
 It combines:
 
 - evidence-backed publication signals from OpenAlex
-- official professor and lab website discovery using DBLP, ROR, and public researcher pages
-- multidimensional scoring across influence, paper quality, output volume, update frequency, field fit, and mentorship proxy
-- website-derived scoring across website visibility, website freshness, and student opportunity language
+- author disambiguation and merged-profile handling for split OpenAlex identities
+- official source discovery using ORCID, INSPIRE-HEP, DBLP, and verified institutional pages
+- multidimensional scoring across influence, paper quality, output volume, publication cadence, field fit, and collaboration structure
+- explicit coauthor identity evidence labels only when an external source exposes a current or latest-stage junior/student signal
 - dynamic histograms for a single professor profile
 - side-by-side comparison across multiple professors
-- explicit caveats and manual verification steps where metadata is not enough
+- explicit source-boundary and caveat sections where metadata is not enough
 
 ## Why both GitHub and a live website
 
@@ -35,31 +36,27 @@ The recommended public setup is:
 The app lets a user:
 
 1. search for a professor by name, research area, and institution hint
-2. pick the correct OpenAlex profile when name collisions exist
-3. generate an evaluation report with evidence and caveats
+2. merge split OpenAlex identities when the same professor appears under multiple close variants
+3. generate a research evidence dashboard with publication, collaboration, and source-boundary evidence
 4. add professors to a compare tray
-5. view multi-professor histograms and track-by-track comparisons
+5. view multi-professor histograms and objective dimension comparisons
 
 ## Scoring dimensions
 
-The evaluator scores:
+The dashboard scores:
 
 - `Influence`
 - `Paper quality`
 - `Output volume`
-- `Update frequency`
+- `Publication cadence`
 - `Field fit`
-- `Mentorship proxy`
-- `Website visibility`
-- `Website freshness`
-- `Student opportunity`
-- `Undergraduate fit`
-- `Master's fit`
-- `PhD fit`
+- `Repeat collaboration`
+- `Senior-collab signal`
+- `Network breadth`
 
 Important limitation:
 
-Undergraduate coauthorship and advising behavior cannot be directly verified from OpenAlex metadata alone. The app therefore treats undergraduate opportunity as a proxy signal and always includes manual verification prompts.
+Student status and advising quality cannot be inferred safely from publication metadata alone. The app therefore labels coauthors as `explicit student` or `junior` only when an external record exposes that career stage clearly; otherwise the label remains `unverified`.
 
 ## Responsible usage
 
@@ -70,7 +67,7 @@ Recommended public posture:
 - generate reports on demand instead of publishing a static leaderboard of all professors
 - show sources and caveats near the scores
 - avoid absolute or defamatory language
-- make clear which claims are data-backed and which are proxy-based
+- make clear which claims are data-backed and which remain outside the verified source boundary
 
 ## Local run
 
@@ -78,8 +75,9 @@ The enhanced version now uses a local Node server for:
 
 - static file serving
 - OpenAlex API proxying
-- official-site discovery
-- professor and lab page enrichment
+- author identity merging
+- collaborator identity enrichment
+- verified-source boundary discovery
 
 Run:
 
@@ -108,8 +106,13 @@ node --test
 - `src/app.css` - visual design and dashboard styles
 - `src/app.mjs` - API-driven rendering and comparison UI
 - `src/prof-evaluator.mjs` - scoring model, evidence summary, and comparison helpers
-- `src/web-enrichment.mjs` - official website discovery, page fetching, and website-signal extraction
+- `src/author-merge.mjs` - conservative merged-profile logic for split OpenAlex identities
+- `src/collaboration-insights.mjs` - coauthor-network analysis
+- `src/inspire-evidence.mjs` - explicit collaborator identity evidence via INSPIRE-HEP
+- `src/web-enrichment.mjs` - verified institutional-source discovery and page extraction
 - `tests/prof-evaluator.test.mjs` - evaluator tests
+- `tests/author-merge.test.mjs` - author merge tests
+- `tests/collaboration-insights.test.mjs` - collaboration evidence tests
 - `tests/web-enrichment.test.mjs` - website enrichment parsing tests
 
 ## Deployment notes
@@ -122,9 +125,8 @@ Only appropriate for the older client-only version.
 
 Better if you later add:
 
-- professor website scraping
+- response caching
 - server-side caching
-- LLM summarization
 - richer comparison datasets
 - usage analytics or saved reports
 
@@ -132,8 +134,8 @@ The current architecture already expects a server process, so Vercel, Netlify Fu
 
 ## Next product upgrades
 
-- add lab website ingestion beyond OpenAlex
-- pull student roster or publication-page evidence when available
+- improve merged-author precision with more institution-aware heuristics
+- add more structured external sources beyond INSPIRE for non-HEP fields
 - cache professor snapshots server-side for faster comparisons
 - add exportable report links
 - add query-consistent benchmark sets inside a single department or field

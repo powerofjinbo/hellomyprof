@@ -57,7 +57,6 @@ function readQuery() {
     professorName: String(formData.get('professorName') || '').trim(),
     researchField: String(formData.get('researchField') || '').trim(),
     institutionName: String(formData.get('institutionName') || '').trim(),
-    audienceLevel: String(formData.get('audienceLevel') || 'all'),
     apiEmail: String(formData.get('apiEmail') || '').trim(),
     apiKey: String(formData.get('apiKey') || '').trim(),
   };
@@ -88,8 +87,15 @@ async function searchAuthors(query) {
   return data.matches || [];
 }
 
-async function fetchReport(authorId, query) {
-  const data = await postJson('/api/report', { authorId, query });
+async function fetchReport(author, query) {
+  const payload = {
+    query,
+    authorId: author.id,
+  };
+  if (author.mergedAuthorIds?.length) {
+    payload.authorIds = author.mergedAuthorIds;
+  }
+  const data = await postJson('/api/report', payload);
   return data.report;
 }
 
@@ -154,6 +160,11 @@ function renderMatchPanel() {
             <div>
               <h3>${escapeHtml(author.display_name)}</h3>
               <p class="candidate-meta">${escapeHtml(institution)}</p>
+              ${
+                author.mergedProfileCount > 1
+                  ? `<p class="candidate-meta">Merged ${author.mergedProfileCount} OpenAlex profiles for author disambiguation.</p>`
+                  : ''
+              }
             </div>
             <div class="candidate-score">Match ${author.matchScore}/100</div>
           </div>
@@ -206,16 +217,14 @@ function renderReport() {
     primaryTopic,
     overallScore,
     confidenceScore,
-    confidenceLabel,
     metrics,
-    strengths,
-    risks,
     timeline,
     topWorks,
     summaryText,
     scoreProfile,
     webSignals,
     collaborationInsights,
+    externalProfiles,
   } = state.report;
 
   const inCompare = isCompared(author.id);
@@ -243,23 +252,120 @@ function renderReport() {
         )
         .join('')
     : '<li>No recent work sample could be assembled from the current metadata response.</li>';
+  const openAlexSourceItems = (author.mergedAuthorIds?.length ? author.mergedAuthorIds : [author.id])
+    .map(
+      (sourceId, index) => `
+        <li>
+          <a class="report-link" href="${escapeHtml(sourceId)}" target="_blank" rel="noreferrer">
+            OpenAlex author profile${author.mergedAuthorIds?.length > 1 ? ` ${index + 1}` : ''}
+          </a>
+        </li>
+      `,
+    )
+    .join('');
+  const verifiedFactsHtml = webSignals?.verifiedFacts?.length
+    ? webSignals.verifiedFacts
+        .map(
+          (fact) => `
+            <li>
+              <strong>${escapeHtml(fact.label)}:</strong> ${escapeHtml(fact.value)}
+              ${fact.sourceUrl ? ` <a class="report-link" href="${escapeHtml(fact.sourceUrl)}" target="_blank" rel="noreferrer">Source</a>` : ''}
+              ${fact.detail ? `<div class="fact-detail">${escapeHtml(fact.detail)}</div>` : ''}
+            </li>
+          `,
+        )
+        .join('')
+    : '<li>No verified institution-domain fact could be extracted automatically for this profile.</li>';
+  const collaboratorCardsHtml = collaborationInsights?.topCollaborators?.length
+    ? collaborationInsights.topCollaborators
+        .map((person) => {
+          const identityLabel = person.identityEvidence?.label || 'unverified';
+          const identityEvidenceText =
+            person.identityEvidence?.evidenceText || 'No explicit student-stage or junior-stage identity evidence was recovered.';
+          const identitySource = person.identityEvidence?.sourceUrl
+            ? `<a class="report-link" href="${escapeHtml(person.identityEvidence.sourceUrl)}" target="_blank" rel="noreferrer">${escapeHtml(person.identityEvidence.source || 'Source')}</a>`
+            : '';
+          return `
+            <article class="website-evidence-card">
+              <div class="website-evidence-topline">
+                <strong>${escapeHtml(person.name)}</strong>
+                <span class="score-pill score-pill-subtle">${escapeHtml(person.prominenceTier)}</span>
+              </div>
+              <p class="candidate-meta">${escapeHtml(person.institution)} · ${person.workCount} shared paper${person.workCount === 1 ? '' : 's'} · recent ${person.recentWorkCount} · last collaboration ${person.lastYear}</p>
+              <ul class="manual-checks">
+                <li>${person.hIndex != null ? `H-index ${person.hIndex}` : 'H-index unavailable'}${person.citations != null ? ` · ${formatCompactNumber(person.citations)} citations` : ''}</li>
+                <li>Identity evidence: ${escapeHtml(identityLabel)}${identitySource ? ` · ${identitySource}` : ''}</li>
+                <li>${escapeHtml(identityEvidenceText)}</li>
+                ${person.sampleTitles?.map((title) => `<li>${escapeHtml(title)}</li>`).join('') || ''}
+              </ul>
+            </article>
+          `;
+        })
+        .join('')
+    : '<p class="trajectory-footnote">No frequent collaborators were extracted from the current sample.</p>';
+  const verifiedSourceList = webSignals?.verifiedSources?.length
+    ? webSignals.verifiedSources
+        .map(
+          (item) => `
+            <li>
+              <a class="report-link" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.label)}</a>
+              <span class="candidate-meta"> · ${escapeHtml(item.source)} · verified</span>
+            </li>
+          `,
+        )
+        .join('')
+    : '<li>No verified institution-domain source is attached to this report yet.</li>';
+  const supportingSourceList = webSignals?.supportingSources?.length
+    ? webSignals.supportingSources
+        .map(
+          (item) => `
+            <li>
+              <a class="report-link" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.label)}</a>
+              <span class="candidate-meta"> · ${escapeHtml(item.source)} · excluded from core metrics</span>
+            </li>
+          `,
+        )
+        .join('')
+    : '';
+  const verifiedSnippetCards = webSignals?.verifiedPages?.length
+    ? webSignals.verifiedPages
+        .map(
+          (page) => `
+            <article class="website-evidence-card">
+              <div class="website-evidence-topline">
+                <a class="paper-link" href="${escapeHtml(page.url)}" target="_blank" rel="noreferrer">${escapeHtml(page.title)}</a>
+                <span class="score-pill score-pill-subtle">${escapeHtml(page.kind)}</span>
+              </div>
+              <p class="candidate-meta">${escapeHtml(page.signalSummary)}${page.publishedTime ? ` · ${escapeHtml(page.publishedTime)}` : ''}</p>
+              <ul class="manual-checks">
+                ${
+                  page.snippets?.length
+                    ? page.snippets.map((snippet) => `<li>${escapeHtml(snippet)}</li>`).join('')
+                    : '<li>No high-signal snippet was extracted from this page.</li>'
+                }
+              </ul>
+            </article>
+          `,
+        )
+        .join('')
+    : '<p class="trajectory-footnote">Website enrichment did not produce verified page-level evidence for this profile.</p>';
 
   reportPanel.innerHTML = `
     <div class="report-topline">
       <div>
-        <p class="report-kicker">Evaluation report</p>
+        <p class="report-kicker">Research evidence dashboard</p>
         <h2 class="report-title">${escapeHtml(author.display_name)}</h2>
         <div class="report-meta">
           <p>${escapeHtml(institution)}</p>
           <p>Primary topic: ${escapeHtml(primaryTopic)}</p>
           <p>Sample size: ${metrics.sampleSize} recent works</p>
           <p>Context: ${escapeHtml(queryContextLabel(state.report))}</p>
+          ${author.mergedProfileCount > 1 ? `<p>Identity resolution: merged ${author.mergedProfileCount} OpenAlex profiles</p>` : ''}
         </div>
       </div>
       <div class="report-actions">
         <div class="score-pill">Overall evidence score · ${overallScore}/100</div>
-        <div class="confidence-pill">Evidence confidence · ${confidenceScore}/100</div>
-        <button id="copy-summary" class="copy-button" type="button">Copy summary</button>
+        <div class="confidence-pill">Source confidence · ${confidenceScore}/100</div>
         <button id="compare-snapshot" class="copy-button" type="button">${inCompare ? 'Update compare snapshot' : 'Add to compare'}</button>
       </div>
     </div>
@@ -273,8 +379,6 @@ function renderReport() {
       ${metricCard('Repeat collaboration', metrics.repeatCollaboration, 'Measures how often the same coauthors recur across the sampled papers')}
       ${metricCard('Senior-collab signal', metrics.seniorCollaboratorSignal, 'Based on collaborator influence profiles in the sampled network')}
       ${metricCard('Network breadth', metrics.collaborationBreadth, 'Breadth of recurring coauthors in the recent sampled publication window')}
-      ${metricCard('Evidence coverage', metrics.evidenceCoverage, 'Breadth of verified evidence across people pages, lab pages, publications, and opportunity signals')}
-      ${metricCard('Verification confidence', metrics.verificationConfidence, 'How much of the website layer is grounded in verified institutional pages rather than supporting links')}
     </section>
 
     <section class="subpanel">
@@ -285,21 +389,6 @@ function renderReport() {
         </div>
       </div>
       ${renderProfileHistogram(scoreProfile, 'single')}
-    </section>
-
-    <section class="insights-grid">
-      <div class="subpanel">
-        <h3>Data-backed observations</h3>
-        <ul class="insight-list">
-          ${strengths.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
-        </ul>
-      </div>
-      <div class="subpanel">
-        <h3>Caveats and data limits</h3>
-        <ul class="insight-list">
-          ${risks.length ? risks.map((item) => `<li>${escapeHtml(item)}</li>`).join('') : '<li>No major automatic red flags surfaced in the current sample, but mentor fit still needs direct validation.</li>'}
-        </ul>
-      </div>
     </section>
 
     <section class="evidence-grid">
@@ -314,77 +403,7 @@ function renderReport() {
       </div>
       <div class="subpanel">
         <h3>Frequent collaborators</h3>
-        <div class="website-evidence-stack">
-          ${
-            collaborationInsights?.topCollaborators?.length
-              ? collaborationInsights.topCollaborators
-                  .map(
-                    (person) => `
-                      <article class="website-evidence-card">
-                        <div class="website-evidence-topline">
-                          <strong>${escapeHtml(person.name)}</strong>
-                          <span class="score-pill score-pill-subtle">${escapeHtml(person.prominenceTier)}</span>
-                        </div>
-                        <p class="candidate-meta">${escapeHtml(person.institution)} · ${person.workCount} shared paper${person.workCount === 1 ? '' : 's'} · recent ${person.recentWorkCount} · last collaboration ${person.lastYear}</p>
-                        <ul class="manual-checks">
-                          <li>${person.hIndex != null ? `H-index ${person.hIndex}` : 'H-index unavailable'}${person.citations != null ? ` · ${formatCompactNumber(person.citations)} citations` : ''}</li>
-                          ${person.sampleTitles?.map((title) => `<li>${escapeHtml(title)}</li>`).join('') || ''}
-                        </ul>
-                      </article>
-                    `,
-                  )
-                  .join('')
-              : '<p class="trajectory-footnote">No frequent collaborators were extracted from the current sample.</p>'
-          }
-        </div>
-        ${
-          collaborationInsights?.notableCollaborators?.length
-            ? `
-              <p class="candidate-meta">Notable collaborators in the sampled network</p>
-              <ul class="manual-checks">
-                ${collaborationInsights.notableCollaborators
-                  .map(
-                    (person) => `
-                      <li>${escapeHtml(person.name)} · ${escapeHtml(person.prominenceTier)}${person.hIndex != null ? ` · H-index ${person.hIndex}` : ''} · ${person.workCount} shared paper${person.workCount === 1 ? '' : 's'}</li>
-                    `,
-                  )
-                  .join('')}
-              </ul>
-            `
-            : ''
-        }
-      </div>
-    </section>
-
-    <section class="evidence-grid">
-      <div class="subpanel">
-        <h3>Evidence coverage histogram</h3>
-        <p class="candidate-meta">This chart uses only verified institution-domain pages. Supporting pages are excluded from these bars.</p>
-        ${
-          webSignals?.evidenceHistogram?.length
-            ? renderProfileHistogram(webSignals.evidenceHistogram, 'single')
-            : '<p class="trajectory-footnote">No verified website histogram could be built for this profile.</p>'
-        }
-      </div>
-      <div class="subpanel">
-        <h3>Verified facts</h3>
-        <ul class="manual-checks">
-          ${
-            webSignals?.verifiedFacts?.length
-              ? webSignals.verifiedFacts
-                  .map(
-                    (fact) => `
-                      <li>
-                        <strong>${escapeHtml(fact.label)}:</strong> ${escapeHtml(fact.value)}
-                        ${fact.sourceUrl ? ` <a class="report-link" href="${escapeHtml(fact.sourceUrl)}" target="_blank" rel="noreferrer">Source</a>` : ''}
-                        ${fact.detail ? `<div class="fact-detail">${escapeHtml(fact.detail)}</div>` : ''}
-                      </li>
-                    `,
-                  )
-                  .join('')
-              : '<li>No verified institution-domain fact could be extracted automatically for this profile.</li>'
-          }
-        </ul>
+        <div class="website-evidence-stack">${collaboratorCardsHtml}</div>
       </div>
     </section>
 
@@ -402,84 +421,10 @@ function renderReport() {
 
     <section class="evidence-grid">
       <div class="subpanel">
-        <h3>Verified website evidence</h3>
+        <h3>Verified source boundary</h3>
         <ul class="manual-checks">
-          ${
-            webSignals?.highlights?.length
-              ? webSignals.highlights.map((item) => `<li>${escapeHtml(item)}</li>`).join('')
-              : '<li>No verified institution-domain professor or lab page was recovered automatically for this search context.</li>'
-          }
+          ${verifiedFactsHtml}
         </ul>
-        <ul class="manual-checks">
-          ${
-            webSignals?.verifiedSources?.length
-              ? webSignals.verifiedSources
-                  .map(
-                    (item) => `
-                      <li>
-                        <a class="report-link" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.label)}</a>
-                        <span class="candidate-meta"> · ${escapeHtml(item.source)} · verified</span>
-                      </li>
-                    `,
-                  )
-                  .join('')
-              : '<li>No verified institution-domain source is attached to this report yet.</li>'
-          }
-        </ul>
-        ${
-          webSignals?.supportingSources?.length
-            ? `
-              <p class="candidate-meta">Supporting links found but excluded from core scoring:</p>
-              <ul class="manual-checks">
-                ${webSignals.supportingSources
-                  .map(
-                    (item) => `
-                      <li>
-                        <a class="report-link" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.label)}</a>
-                        <span class="candidate-meta"> · ${escapeHtml(item.source)} · supporting only</span>
-                      </li>
-                    `,
-                  )
-                  .join('')}
-              </ul>
-            `
-            : ''
-        }
-      </div>
-      <div class="subpanel">
-        <h3>Verified page snippets</h3>
-        <div class="website-evidence-stack">
-          ${
-            webSignals?.verifiedPages?.length
-              ? webSignals.verifiedPages
-                  .map(
-                    (page) => `
-                      <article class="website-evidence-card">
-                        <div class="website-evidence-topline">
-                          <a class="paper-link" href="${escapeHtml(page.url)}" target="_blank" rel="noreferrer">${escapeHtml(page.title)}</a>
-                          <span class="score-pill score-pill-subtle">${escapeHtml(page.kind)}</span>
-                        </div>
-                        <p class="candidate-meta">${escapeHtml(page.signalSummary)}${page.publishedTime ? ` · ${escapeHtml(page.publishedTime)}` : ''}</p>
-                        <ul class="manual-checks">
-                          ${
-                            page.snippets?.length
-                              ? page.snippets.map((snippet) => `<li>${escapeHtml(snippet)}</li>`).join('')
-                              : '<li>No high-signal snippet was extracted from this page.</li>'
-                          }
-                        </ul>
-                      </article>
-                    `,
-                  )
-                  .join('')
-              : '<p class="trajectory-footnote">Website enrichment did not produce verified page-level evidence for this profile.</p>'
-          }
-        </div>
-      </div>
-    </section>
-
-    <section class="evidence-grid">
-      <div class="subpanel">
-        <h3>Source boundaries</h3>
         <ul class="manual-checks">
           ${collaborationInsights?.caveats?.length ? collaborationInsights.caveats.map((item) => `<li>${escapeHtml(item)}</li>`).join('') : ''}
           ${webSignals?.caveats?.length ? webSignals.caveats.map((item) => `<li>${escapeHtml(item)}</li>`).join('') : ''}
@@ -487,13 +432,26 @@ function renderReport() {
         </ul>
       </div>
       <div class="subpanel">
+        <h3>Verified page snippets</h3>
+        <div class="website-evidence-stack">${verifiedSnippetCards}</div>
+      </div>
+    </section>
+
+    <section class="evidence-grid">
+      <div class="subpanel">
         <h3>Sources</h3>
         <ul class="manual-checks">
-          <li><a class="report-link" href="${escapeHtml(author.id)}" target="_blank" rel="noreferrer">OpenAlex author profile</a></li>
+          ${openAlexSourceItems}
           ${author.ids?.orcid ? `<li><a class="report-link" href="${escapeHtml(author.ids.orcid)}" target="_blank" rel="noreferrer">ORCID record</a></li>` : ''}
-          ${webSignals?.verifiedSources?.length ? webSignals.verifiedSources.map((item) => `<li><a class="report-link" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.label)}</a></li>`).join('') : ''}
-          <li>This report prioritizes publication metadata and coauthor structure over website roster counts.</li>
-          <li>For fair comparison, keep the research field consistent across professors.</li>
+          ${externalProfiles?.inspire?.sourceUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.inspire.sourceUrl)}" target="_blank" rel="noreferrer">INSPIRE-HEP author record</a></li>` : ''}
+          ${externalProfiles?.scholarSearchUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.scholarSearchUrl)}" target="_blank" rel="noreferrer">Google Scholar search</a> <span class="candidate-meta">· manual lookup only</span></li>` : ''}
+          ${verifiedSourceList}
+        </ul>
+      </div>
+      <div class="subpanel">
+        <h3>Excluded supporting links</h3>
+        <ul class="manual-checks">
+          ${supportingSourceList || '<li>No additional supporting links were recovered for this profile.</li>'}
         </ul>
       </div>
     </section>
@@ -504,15 +462,6 @@ function renderReport() {
   `;
 
   reportPanel.classList.remove('hidden');
-
-  document.getElementById('copy-summary')?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(summaryText);
-      status('Copied a concise evaluation summary to the clipboard.', 'success');
-    } catch {
-      status('Clipboard access failed in this browser context. You can still copy the footer summary manually.', 'error');
-    }
-  });
 
   document.getElementById('compare-snapshot')?.addEventListener('click', () => {
     addCurrentReportToComparison();
@@ -642,7 +591,7 @@ function renderComparisonPanel() {
                 <span class="score-pill">${item.overallScore}/100</span>
                 <span class="confidence-pill">Evidence ${item.confidenceScore}/100</span>
               </div>
-              <p class="candidate-meta">Field fit ${item.fieldFit}/100 · Repeat collaboration ${item.repeatCollaboration}/100 · Evidence coverage ${item.evidenceCoverage}/100</p>
+              <p class="candidate-meta">Field fit ${item.fieldFit}/100 · Publication cadence ${item.momentum}/100 · Repeat collaboration ${item.repeatCollaboration}/100 · Senior-collab ${item.seniorCollaboratorSignal}/100</p>
             </article>
           `,
         )
@@ -707,20 +656,19 @@ function addCurrentReportToComparison() {
 async function loadAuthor(author) {
   const requestId = ++state.requestId;
   const cacheKey = JSON.stringify({
-    authorId: author.id,
+    authorIds: author.mergedAuthorIds?.length ? author.mergedAuthorIds : [author.id],
     researchField: state.query?.researchField || '',
-    audienceLevel: state.query?.audienceLevel || 'all',
     institutionName: state.query?.institutionName || '',
   });
   state.selectedAuthorId = author.id;
   renderMatchPanel();
   renderLoading(`Evaluating ${author.display_name}...`);
-  status(`Loading publication, collaboration, and verified-evidence signals for ${author.display_name}...`);
+  status(`Loading publication, coauthor, and verified-source evidence for ${author.display_name}...`);
 
   try {
     let cached = state.reportCache.get(cacheKey);
     if (!cached) {
-      cached = await fetchReport(author.id, state.query);
+      cached = await fetchReport(author, state.query);
       state.reportCache.set(cacheKey, cached);
     }
 
@@ -732,7 +680,7 @@ async function loadAuthor(author) {
     renderReport();
     renderMatchPanel();
     renderComparisonPanel();
-    status(`Evaluation generated for ${author.display_name}. Add it to the compare tray if you want side-by-side histograms.`, 'success');
+    status(`Research evidence dashboard generated for ${author.display_name}. Add it to compare if you want side-by-side histograms.`, 'success');
   } catch (error) {
     if (requestId !== state.requestId) {
       return;
@@ -759,7 +707,7 @@ async function handleSubmit(event) {
   searchButton.disabled = true;
   matchPanel.classList.add('hidden');
   renderLoading('Searching OpenAlex author profiles...');
-  status('Searching OpenAlex author profiles and preparing evidence extraction...');
+  status('Searching OpenAlex author profiles and preparing research evidence extraction...');
 
   try {
     const matches = await searchAuthors(query);
