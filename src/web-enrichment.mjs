@@ -536,7 +536,7 @@ async function discoverDblpSources(author, query, institutionDomains = []) {
   }
 
   const xmlText = await fetchText(`${pidUrl}.xml`, { Accept: 'application/xml, text/xml;q=0.9, */*;q=0.8' });
-  return parseDblpExternalUrls(xmlText)
+  const externalUrls = parseDblpExternalUrls(xmlText)
     .filter((candidateUrl) => isLikelyOfficialUrl(candidateUrl, institutionDomains))
     .map((candidateUrl) => ({
       url: candidateUrl,
@@ -546,6 +546,9 @@ async function discoverDblpSources(author, query, institutionDomains = []) {
       confidence: 0.94,
       tier: sourceTier(candidateUrl, institutionDomains),
     }));
+
+  externalUrls._dblpProfileUrl = pidUrl;
+  return externalUrls;
 }
 
 async function discoverOrcidSources(author, institutionDomains = []) {
@@ -906,7 +909,9 @@ function aggregateSignals(seedSources, pages, institutionDomains) {
 export async function enrichProfessorWebPresence({ author, query }) {
   try {
     const institutionContext = await discoverInstitutionContext(author, query);
-    const dblpSources = await discoverDblpSources(author, query, institutionContext.institutionDomains).catch(() => []);
+    const dblpSourcesRaw = await discoverDblpSources(author, query, institutionContext.institutionDomains).catch(() => []);
+    const dblpProfileUrl = dblpSourcesRaw._dblpProfileUrl || null;
+    const dblpSources = Array.from(dblpSourcesRaw);
     const orcidSources = await discoverOrcidSources(author, institutionContext.institutionDomains).catch(() => []);
     const bingSources =
       dblpSources.length || orcidSources.length
@@ -951,7 +956,9 @@ export async function enrichProfessorWebPresence({ author, query }) {
       followupPages.map((page) => ({ url: page.url, page })),
     ).map((item) => item.page);
 
-    return aggregateSignals(seedSources, pages, institutionContext.institutionDomains);
+    const signals = aggregateSignals(seedSources, pages, institutionContext.institutionDomains);
+    signals.dblpProfileUrl = dblpProfileUrl;
+    return signals;
   } catch {
     return {
       metrics: {

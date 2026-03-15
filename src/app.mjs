@@ -247,6 +247,7 @@ function renderReport() {
             <li>
               <a class="paper-link" href="${escapeHtml(work.link)}" target="_blank" rel="noreferrer">${escapeHtml(work.title)}</a>
               <div class="paper-meta">${work.year} · ${escapeHtml(work.venue)} · ${work.citations} citations · percentile ${work.percentile}${work.topTen ? ' · top 10%' : ''}</div>
+              ${work.crossref ? `<div class="paper-meta">${work.crossref.journal ? `${escapeHtml(work.crossref.journal)}` : ''}${work.crossref.subjects?.length ? ` · ${work.crossref.subjects.slice(0, 2).map((s) => escapeHtml(s)).join(', ')}` : ''}${work.crossref.fundingInfo?.length ? ` · Funded by ${work.crossref.fundingInfo.map((f) => escapeHtml(f.name)).join(', ')}` : ''}</div>` : ''}
             </li>
           `,
         )
@@ -358,7 +359,7 @@ function renderReport() {
         <div class="report-meta">
           <p>${escapeHtml(institution)}</p>
           <p>Primary topic: ${escapeHtml(primaryTopic)}</p>
-          <p>Sample size: ${metrics.sampleSize} recent works</p>
+          <p>Sample size: ${metrics.sampleSize} recent works${externalProfiles?.semanticScholar?.paperCount ? ` (${formatCompactNumber(externalProfiles.semanticScholar.paperCount)} total on Semantic Scholar)` : ''}</p>
           <p>Context: ${escapeHtml(queryContextLabel(state.report))}</p>
           ${author.mergedProfileCount > 1 ? `<p>Identity resolution: merged ${author.mergedProfileCount} OpenAlex profiles</p>` : ''}
         </div>
@@ -439,12 +440,19 @@ function renderReport() {
 
     <section class="evidence-grid">
       <div class="subpanel">
-        <h3>Sources</h3>
-        <ul class="manual-checks">
+        <h3>External profiles &amp; sources</h3>
+        <div class="external-links-grid">
           ${openAlexSourceItems}
-          ${author.ids?.orcid ? `<li><a class="report-link" href="${escapeHtml(author.ids.orcid)}" target="_blank" rel="noreferrer">ORCID record</a></li>` : ''}
+          ${externalProfiles?.orcidUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.orcidUrl)}" target="_blank" rel="noreferrer">ORCID record</a></li>` : (author.ids?.orcid ? `<li><a class="report-link" href="${escapeHtml(author.ids.orcid)}" target="_blank" rel="noreferrer">ORCID record</a></li>` : '')}
           ${externalProfiles?.inspire?.sourceUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.inspire.sourceUrl)}" target="_blank" rel="noreferrer">INSPIRE-HEP author record</a></li>` : ''}
-          ${externalProfiles?.scholarSearchUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.scholarSearchUrl)}" target="_blank" rel="noreferrer">Google Scholar search</a> <span class="candidate-meta">· manual lookup only</span></li>` : ''}
+          ${externalProfiles?.semanticScholar?.url ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.semanticScholar.url)}" target="_blank" rel="noreferrer">Semantic Scholar profile</a> <span class="candidate-meta">· ${externalProfiles.semanticScholar.citationCount != null ? `${formatCompactNumber(externalProfiles.semanticScholar.citationCount)} citations` : 'profile found'}</span></li>` : ''}
+          ${externalProfiles?.dblpProfileUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.dblpProfileUrl)}" target="_blank" rel="noreferrer">DBLP author page</a></li>` : ''}
+          ${externalProfiles?.scholarProfileUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.scholarProfileUrl)}" target="_blank" rel="noreferrer">Google Scholar author search</a></li>` : ''}
+          ${externalProfiles?.scholarSearchUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.scholarSearchUrl)}" target="_blank" rel="noreferrer">Google Scholar papers search</a> <span class="candidate-meta">· manual lookup</span></li>` : ''}
+          ${externalProfiles?.scopusUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.scopusUrl)}" target="_blank" rel="noreferrer">Scopus author profile</a></li>` : ''}
+          ${externalProfiles?.homepage ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.homepage)}" target="_blank" rel="noreferrer">Author homepage</a> <span class="candidate-meta">· external</span></li>` : ''}
+        </div>
+        <ul class="manual-checks" style="margin-top: 14px;">
           ${verifiedSourceList}
         </ul>
       </div>
@@ -474,10 +482,16 @@ function renderLoading(message) {
       <div>
         <p class="report-kicker">Loading</p>
         <h2 class="report-title">${escapeHtml(message)}</h2>
+        <div class="loading-steps">
+          <p class="loading-step">Fetching OpenAlex publication data...</p>
+          <p class="loading-step">Querying ORCID, INSPIRE-HEP, Semantic Scholar...</p>
+          <p class="loading-step">Analyzing collaboration network...</p>
+          <p class="loading-step">Discovering verified institutional sources...</p>
+        </div>
       </div>
     </div>
     <section class="overview-grid">
-      ${Array.from({ length: 6 }, () => '<article class="metric-card skeleton"></article>').join('')}
+      ${Array.from({ length: 8 }, () => '<article class="metric-card skeleton"></article>').join('')}
     </section>
   `;
   reportPanel.classList.remove('hidden');
