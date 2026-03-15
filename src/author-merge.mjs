@@ -34,9 +34,34 @@ function exactish(left, right) {
   return overlap / Math.max(leftTokens.size, rightTokens.size);
 }
 
+function sharedInitial(left, right) {
+  if (!left || !right) return false;
+  return left[0] === right[0];
+}
+
+function nameExactish(left, right) {
+  const base = exactish(left, right);
+  const leftName = splitName(left);
+  const rightName = splitName(right);
+
+  if (!leftName.last || leftName.last !== rightName.last || !sharedInitial(leftName.first, rightName.first)) {
+    return base;
+  }
+
+  if (leftName.first === rightName.first && leftName.first) {
+    return Math.max(base, 0.97);
+  }
+
+  if (leftName.first.length === 1 || rightName.first.length === 1) {
+    return Math.max(base, 0.92);
+  }
+
+  return Math.max(base, 0.84);
+}
+
 function nameVariantScore(author, queryName) {
   const variants = [author.display_name, ...(author.display_name_alternatives || [])];
-  return variants.reduce((best, variant) => Math.max(best, exactish(variant, queryName)), 0);
+  return variants.reduce((best, variant) => Math.max(best, nameExactish(variant, queryName)), 0);
 }
 
 function authorNameVariants(author) {
@@ -49,7 +74,7 @@ function crossVariantScore(left, right) {
   let best = 0;
   for (const leftVariant of leftVariants) {
     for (const rightVariant of rightVariants) {
-      best = Math.max(best, exactish(leftVariant, rightVariant));
+      best = Math.max(best, nameExactish(leftVariant, rightVariant));
     }
   }
   return best;
@@ -74,6 +99,34 @@ function fieldScore(author, researchField) {
   return computeFieldAlignment(author, [], researchField || '');
 }
 
+function normalizeIdentityValue(value, prefixPattern = null) {
+  if (!value) return '';
+  let normalized = String(value).trim().toLowerCase();
+  if (prefixPattern) {
+    normalized = normalized.replace(prefixPattern, '');
+  }
+  return normalized;
+}
+
+function sharedExternalIdentity(left, right) {
+  const leftIds = left.ids || {};
+  const rightIds = right.ids || {};
+
+  const leftOrcid = normalizeIdentityValue(leftIds.orcid, /^https?:\/\/orcid\.org\//);
+  const rightOrcid = normalizeIdentityValue(rightIds.orcid, /^https?:\/\/orcid\.org\//);
+  if (leftOrcid && rightOrcid && leftOrcid === rightOrcid) {
+    return true;
+  }
+
+  const leftScopus = normalizeIdentityValue(leftIds.scopus);
+  const rightScopus = normalizeIdentityValue(rightIds.scopus);
+  if (leftScopus && rightScopus && leftScopus === rightScopus) {
+    return true;
+  }
+
+  return false;
+}
+
 function shouldMerge(left, right, query) {
   const queryName = query.professorName || '';
   const leftName = splitName(left.display_name);
@@ -90,21 +143,25 @@ function shouldMerge(left, right, query) {
   const leftInstitutionMatch = institutionScore(left, query.institutionName);
   const rightInstitutionMatch = institutionScore(right, query.institutionName);
   const directInstitutionSimilarity = sameInstitutionScore(left, right);
+  const missingInstitutionBridge =
+    (leftInstitutionMatch >= 0.72 && !hasInstitutionData(right)) || (rightInstitutionMatch >= 0.72 && !hasInstitutionData(left));
   const institutionAligned =
     !query.institutionName ||
     ((leftInstitutionMatch >= 0.72 || !hasInstitutionData(left)) && (rightInstitutionMatch >= 0.72 || !hasInstitutionData(right)));
   const mutuallyAlignedInstitutions =
-    institutionAligned || directInstitutionSimilarity >= 0.84 || (!hasInstitutionData(left) && !hasInstitutionData(right));
+    institutionAligned || directInstitutionSimilarity >= 0.84 || missingInstitutionBridge || (!hasInstitutionData(left) && !hasInstitutionData(right));
   const leftFieldScore = fieldScore(left, query.researchField);
   const rightFieldScore = fieldScore(right, query.researchField);
   const fieldAligned = !query.researchField || (leftFieldScore >= 0.35 && rightFieldScore >= 0.35);
+  const sameExternalIdentity = sharedExternalIdentity(left, right);
 
   return Boolean(
     sameLastName &&
       sameInitial &&
-      mutuallyAlignedInstitutions &&
       fieldAligned &&
-      (strongQueryMatch || exactDisplayDuplicate || (variantSimilarity >= 0.84 && leftQueryNameScore >= 0.8 && rightQueryNameScore >= 0.8)),
+      (sameExternalIdentity ||
+        (mutuallyAlignedInstitutions &&
+          (strongQueryMatch || exactDisplayDuplicate || (variantSimilarity >= 0.84 && leftQueryNameScore >= 0.8 && rightQueryNameScore >= 0.8)))),
   );
 }
 
@@ -231,16 +288,44 @@ export function mergeAuthorProfiles(authors, mergedWorks = [], preferredName = '
 }
 
 function shouldSuppressDuplicate(left, right, query) {
+  const leftName = splitName(left.display_name);
+  const rightName = splitName(right.display_name);
+  const sameLastName = leftName.last && leftName.last === rightName.last;
+  const sameInitial = sharedInitial(leftName.first, rightName.first);
   const exactQueryAligned =
-    nameVariantScore(left, query.professorName || '') >= 0.88 &&
-    nameVariantScore(right, query.professorName || '') >= 0.88 &&
+    nameVariantScore(left, query.professorName || '') >= 0.86 &&
+    nameVariantScore(right, query.professorName || '') >= 0.86 &&
+    crossVariantScore(left, right) >= 0.88;
+  const strongNameAnchor =
+    nameVariantScore(left, query.professorName || '') >= 0.92 &&
+    nameVariantScore(right, query.professorName || '') >= 0.92 &&
     crossVariantScore(left, right) >= 0.9;
   const institutionAligned =
-    !query.institutionName ||
-    (institutionScore(left, query.institutionName) >= 0.72 && institutionScore(right, query.institutionName) >= 0.72);
+    !query.institutionName
+      ? sameInstitutionScore(left, right) >= 0.84 || !hasInstitutionData(left) || !hasInstitutionData(right)
+      : (institutionScore(left, query.institutionName) >= 0.72 && institutionScore(right, query.institutionName) >= 0.72) ||
+        sameInstitutionScore(left, right) >= 0.84;
   const fieldAligned =
     !query.researchField || (fieldScore(left, query.researchField) >= 0.35 && fieldScore(right, query.researchField) >= 0.35);
-  return exactQueryAligned && institutionAligned && fieldAligned;
+  const fragmentaryRecord = (author) => {
+    const works = author.works_count || 0;
+    const citations = author.cited_by_count || 0;
+    const hIndex = author.summary_stats?.h_index || 0;
+    return works <= 8 || (hIndex <= 5 && citations <= 500);
+  };
+  const fragmentBridge = strongNameAnchor && fieldAligned && (fragmentaryRecord(left) || fragmentaryRecord(right));
+
+  return sameLastName && sameInitial && fieldAligned && (sharedExternalIdentity(left, right) || (exactQueryAligned && institutionAligned) || fragmentBridge);
+}
+
+function mergeMatchEntries(left, right, query) {
+  const merged = mergeAuthorProfiles([left, right], [], query.professorName || '');
+  return {
+    ...merged,
+    matchScore: Math.max(left.matchScore || 0, right.matchScore || 0),
+    mergedProfileCount: merged.mergedAuthorIds?.length || (left.mergedProfileCount || 1) + (right.mergedProfileCount || 1),
+    profileType: 'merged',
+  };
 }
 
 export function buildAuthorMatches(authors, query) {
@@ -302,11 +387,15 @@ export function buildAuthorMatches(authors, query) {
 
   const dedupedMatches = [];
   for (const match of clusteredMatches) {
-    if (dedupedMatches.some((existing) => shouldSuppressDuplicate(existing, match, query))) {
+    const duplicateIndex = dedupedMatches.findIndex((existing) => shouldSuppressDuplicate(existing, match, query));
+    if (duplicateIndex >= 0) {
+      dedupedMatches[duplicateIndex] = mergeMatchEntries(dedupedMatches[duplicateIndex], match, query);
       continue;
     }
     dedupedMatches.push(match);
   }
 
-  return dedupedMatches;
+  return dedupedMatches.sort(
+    (left, right) => right.matchScore - left.matchScore || (right.cited_by_count || 0) - (left.cited_by_count || 0),
+  );
 }

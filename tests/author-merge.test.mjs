@@ -91,9 +91,47 @@ test('buildAuthorMatches suppresses same-name same-institution duplicates that s
     },
   );
 
-  assert.equal(matches.length, 2);
+  assert.equal(matches.length, 1);
   assert.equal(matches[0].profileType, 'merged');
-  assert.equal(matches[0].mergedProfileCount, 3);
-  assert.equal(matches[1].profileType, 'single');
-  assert.equal(matches[1].works_count, 2);
+  assert.equal(matches[0].mergedProfileCount, 4);
+  assert.deepEqual(matches[0].mergedAuthorIds.sort(), [
+    'https://openalex.org/A1',
+    'https://openalex.org/A2',
+    'https://openalex.org/A3',
+    'https://openalex.org/A4',
+  ]);
+});
+
+test('buildAuthorMatches merges initial-only name variants without explicit alternative names', () => {
+  const matches = buildAuthorMatches(
+    [
+      {
+        id: 'https://openalex.org/A10',
+        display_name: 'Daniel Whiteson',
+        works_count: 28,
+        cited_by_count: 1800,
+        summary_stats: { h_index: 24 },
+        last_known_institutions: [{ display_name: 'University of California, Irvine', type: 'education' }],
+        topics: [{ display_name: 'Particle Physics' }],
+      },
+      {
+        id: 'https://openalex.org/A11',
+        display_name: 'D. Whiteson',
+        works_count: 7,
+        cited_by_count: 140,
+        summary_stats: { h_index: 5 },
+        last_known_institutions: [{ display_name: 'University of California, Irvine', type: 'education' }],
+        topics: [{ display_name: 'Particle Physics' }],
+      },
+    ],
+    {
+      professorName: 'Daniel Whiteson',
+      researchField: 'particle physics',
+      institutionName: 'University of California, Irvine',
+    },
+  );
+
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].profileType, 'merged');
+  assert.deepEqual(matches[0].mergedAuthorIds.sort(), ['https://openalex.org/A10', 'https://openalex.org/A11']);
 });

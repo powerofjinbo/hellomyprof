@@ -357,6 +357,61 @@ function renderReport() {
         )
         .join('')
     : '<p class="trajectory-footnote">Website enrichment did not produce verified page-level evidence for this profile.</p>';
+  const googleScholar = externalProfiles?.googleScholar || null;
+  const googleScholarStatusLabel =
+    googleScholar?.status === 'matched'
+      ? `matched via ${googleScholar.provider}`
+      : googleScholar?.status === 'blocked'
+        ? `attempted via ${googleScholar.provider} · blocked`
+        : googleScholar?.status === 'error'
+          ? `attempted via ${googleScholar.provider} · error`
+          : googleScholar?.status === 'unavailable'
+            ? `attempted via ${googleScholar?.provider || 'direct'} · no confident profile`
+            : 'not queried';
+  const metricCrossCheckItems = [
+    `<li>OpenAlex · H-index ${metrics.hIndex} · ${metrics.citationsLabel} citations · ${metrics.worksCount} works</li>`,
+    externalProfiles?.semanticScholar
+      ? `<li>Semantic Scholar · ${externalProfiles.semanticScholar.hIndex != null ? `H-index ${externalProfiles.semanticScholar.hIndex}` : 'H-index unavailable'}${externalProfiles.semanticScholar.citationCount != null ? ` · ${formatCompactNumber(externalProfiles.semanticScholar.citationCount)} citations` : ''}${externalProfiles.semanticScholar.paperCount != null ? ` · ${formatCompactNumber(externalProfiles.semanticScholar.paperCount)} papers` : ''}</li>`
+      : '<li>Semantic Scholar · no matched profile returned</li>',
+    googleScholar
+      ? `<li>Google Scholar · ${googleScholar.status === 'matched' ? `${googleScholar.hIndex != null ? `H-index ${googleScholar.hIndex}` : 'H-index unavailable'}${googleScholar.citationCount != null ? ` · ${formatCompactNumber(googleScholar.citationCount)} citations` : ''}${googleScholar.affiliation ? ` · ${escapeHtml(googleScholar.affiliation)}` : ''}` : escapeHtml(googleScholarStatusLabel)}</li>`
+      : '<li>Google Scholar · no lookup attempted</li>',
+  ].join('');
+  const googleScholarSourceItem = googleScholar
+    ? `
+        <li>
+          <a class="report-link" href="${escapeHtml(googleScholar.profileUrl || googleScholar.authorSearchUrl || googleScholar.searchUrl)}" target="_blank" rel="noreferrer">
+            Google Scholar${googleScholar.profileUrl ? ' profile' : ' search'}
+          </a>
+          <span class="candidate-meta">
+            · ${escapeHtml(googleScholarStatusLabel)}
+            ${googleScholar.matchConfidence ? ` · confidence ${googleScholar.matchConfidence}/100` : ''}
+          </span>
+        </li>
+      `
+    : '';
+  const googleScholarEvidence = googleScholar
+    ? `
+        <ul class="manual-checks">
+          <li>${escapeHtml(googleScholar.note || 'No Google Scholar boundary note was returned.')}</li>
+          ${
+            googleScholar.verifiedEmail
+              ? `<li>Scholar contact domain: ${escapeHtml(googleScholar.verifiedEmail)}</li>`
+              : ''
+          }
+          ${
+            googleScholar.interests?.length
+              ? `<li>Scholar interests: ${escapeHtml(googleScholar.interests.slice(0, 5).join(', '))}</li>`
+              : ''
+          }
+          ${
+            googleScholar.coAuthors?.length
+              ? `<li>Scholar coauthor sample: ${googleScholar.coAuthors.slice(0, 4).map((entry) => escapeHtml(entry.name)).join(', ')}</li>`
+              : ''
+          }
+        </ul>
+      `
+    : '<ul class="manual-checks"><li>Google Scholar did not return a structured profile payload for this report.</li></ul>';
 
   reportPanel.innerHTML = `
     <div class="report-topline">
@@ -366,7 +421,7 @@ function renderReport() {
         <div class="report-meta">
           <p>${escapeHtml(institution)}</p>
           <p>Primary topic: ${escapeHtml(primaryTopic)}</p>
-          <p>Sample size: ${metrics.sampleSize} recent works${externalProfiles?.semanticScholar?.paperCount ? ` (${formatCompactNumber(externalProfiles.semanticScholar.paperCount)} total on Semantic Scholar)` : ''}</p>
+          <p>Sample size: ${metrics.sampleSize} recent works</p>
           <p>Context: ${escapeHtml(queryContextLabel(state.report))}</p>
           ${author.mergedProfileCount > 1 ? `<p>Identity resolution: merged ${author.mergedProfileCount} OpenAlex profiles</p>` : ''}
         </div>
@@ -429,6 +484,19 @@ function renderReport() {
 
     <section class="evidence-grid">
       <div class="subpanel">
+        <h3>External metric cross-check</h3>
+        <ul class="manual-checks">
+          ${metricCrossCheckItems}
+        </ul>
+      </div>
+      <div class="subpanel">
+        <h3>Google Scholar boundary</h3>
+        ${googleScholarEvidence}
+      </div>
+    </section>
+
+    <section class="evidence-grid">
+      <div class="subpanel">
         <h3>Verified source boundary</h3>
         <ul class="manual-checks">
           ${verifiedFactsHtml}
@@ -447,15 +515,14 @@ function renderReport() {
 
     <section class="evidence-grid">
       <div class="subpanel">
-        <h3>External profiles &amp; sources</h3>
+        <h3>External records</h3>
         <div class="external-links-grid">
           ${openAlexSourceItems}
           ${externalProfiles?.orcidUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.orcidUrl)}" target="_blank" rel="noreferrer">ORCID record</a></li>` : (author.ids?.orcid ? `<li><a class="report-link" href="${escapeHtml(author.ids.orcid)}" target="_blank" rel="noreferrer">ORCID record</a></li>` : '')}
           ${externalProfiles?.inspire?.sourceUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.inspire.sourceUrl)}" target="_blank" rel="noreferrer">INSPIRE-HEP author record</a></li>` : ''}
           ${externalProfiles?.semanticScholar?.url ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.semanticScholar.url)}" target="_blank" rel="noreferrer">Semantic Scholar profile</a> <span class="candidate-meta">· ${externalProfiles.semanticScholar.citationCount != null ? `${formatCompactNumber(externalProfiles.semanticScholar.citationCount)} citations` : 'profile found'}</span></li>` : ''}
           ${externalProfiles?.dblpProfileUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.dblpProfileUrl)}" target="_blank" rel="noreferrer">DBLP author page</a></li>` : ''}
-          ${externalProfiles?.scholarProfileUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.scholarProfileUrl)}" target="_blank" rel="noreferrer">Google Scholar author search</a></li>` : ''}
-          ${externalProfiles?.scholarSearchUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.scholarSearchUrl)}" target="_blank" rel="noreferrer">Google Scholar papers search</a> <span class="candidate-meta">· manual lookup</span></li>` : ''}
+          ${googleScholarSourceItem}
           ${externalProfiles?.scopusUrl ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.scopusUrl)}" target="_blank" rel="noreferrer">Scopus author profile</a></li>` : ''}
           ${externalProfiles?.homepage ? `<li><a class="report-link" href="${escapeHtml(externalProfiles.homepage)}" target="_blank" rel="noreferrer">Author homepage</a> <span class="candidate-meta">· external</span></li>` : ''}
         </div>
@@ -491,7 +558,7 @@ function renderLoading(message) {
         <h2 class="report-title">${escapeHtml(message)}</h2>
         <div class="loading-steps">
           <p class="loading-step">Fetching OpenAlex publication data...</p>
-          <p class="loading-step">Querying ORCID, INSPIRE-HEP, Semantic Scholar...</p>
+          <p class="loading-step">Querying ORCID, INSPIRE-HEP, Semantic Scholar, Google Scholar...</p>
           <p class="loading-step">Analyzing collaboration network...</p>
           <p class="loading-step">Discovering verified institutional sources...</p>
         </div>

@@ -4,6 +4,7 @@ import { buildCollaborationInsights } from './collaboration-insights.mjs';
 import { lookupInspireIdentityEvidence } from './inspire-evidence.mjs';
 import { enrichProfessorWebPresence } from './web-enrichment.mjs';
 import { lookupSemanticScholar } from './semantic-scholar.mjs';
+import { buildScholarAuthorSearchUrl, buildScholarPaperSearchUrl, lookupGoogleScholar } from './google-scholar.mjs';
 import { enrichTopWorksWithCrossref } from './crossref-enrichment.mjs';
 
 const reportCache = new Map();
@@ -123,16 +124,6 @@ async function hydrateAuthorSelection(authorIds, query) {
   return { author, works };
 }
 
-function buildScholarSearchUrl(author, query) {
-  const terms = [author.display_name, pickInstitution(author, query.institutionName || '')].filter(Boolean).join(' ');
-  return `https://scholar.google.com/scholar?q=${encodeURIComponent(terms)}`;
-}
-
-function buildGoogleScholarProfileUrl(author) {
-  const name = author.display_name || '';
-  return `https://scholar.google.com/citations?view_op=search_authors&mauthors=${encodeURIComponent(name)}`;
-}
-
 function normalizeOrcidUrl(orcid) {
   if (!orcid) return null;
   const bare = String(orcid).replace(/^https?:\/\/orcid\.org\//i, '').trim();
@@ -140,12 +131,18 @@ function normalizeOrcidUrl(orcid) {
   return `https://orcid.org/${bare}`;
 }
 
-function buildExternalProfiles(author, query, { inspire, semanticScholar, dblpProfileUrl = null }) {
+function buildExternalProfiles(author, query, { inspire, semanticScholar, googleScholar, dblpProfileUrl = null }) {
   const profiles = {
     inspire: inspire || null,
     semanticScholar: semanticScholar || null,
-    scholarSearchUrl: buildScholarSearchUrl(author, query),
-    scholarProfileUrl: buildGoogleScholarProfileUrl(author),
+    googleScholar: googleScholar || {
+      source: 'Google Scholar',
+      provider: 'direct',
+      status: 'unavailable',
+      searchUrl: buildScholarPaperSearchUrl(author.display_name, pickInstitution(author, query.institutionName || '')),
+      authorSearchUrl: buildScholarAuthorSearchUrl(author.display_name),
+      note: 'Structured Scholar data was not recovered for this profile.',
+    },
     orcidUrl: normalizeOrcidUrl(author.ids?.orcid),
     openalex: author.id || null,
     homepage: author.homepage_url || semanticScholar?.homepage || null,
@@ -199,7 +196,7 @@ export async function buildProfessorReport(payload = {}) {
     institution: pickInstitution(author, query.institutionName || ''),
     orcid: author.ids?.orcid || '',
   }).catch(() => null);
-  const [collaborationInsights, semanticScholarProfile] = await Promise.all([
+  const [collaborationInsights, semanticScholarProfile, googleScholarProfile] = await Promise.all([
     buildCollaborationInsights({
       author,
       works,
@@ -210,11 +207,17 @@ export async function buildProfessorReport(payload = {}) {
       name: author.display_name,
       orcid: author.ids?.orcid || '',
     }).catch(() => null),
+    lookupGoogleScholar({
+      name: author.display_name,
+      institution: pickInstitution(author, query.institutionName || ''),
+      researchField: query.researchField,
+    }).catch(() => null),
   ]);
 
   const externalProfiles = buildExternalProfiles(author, query, {
     inspire: inspireProfile,
     semanticScholar: semanticScholarProfile,
+    googleScholar: googleScholarProfile,
     dblpProfileUrl: websiteSignals?.dblpProfileUrl || null,
   });
 

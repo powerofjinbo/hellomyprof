@@ -10,6 +10,7 @@ It combines:
 
 - evidence-backed publication signals from OpenAlex
 - author disambiguation and merged-profile handling for split OpenAlex identities
+- Google Scholar cross-checks when a configured Scholar proxy is available, with explicit `matched / blocked / unavailable` status boundaries
 - official source discovery using ORCID, INSPIRE-HEP, DBLP, and verified institutional pages
 - multidimensional scoring across influence, paper quality, output volume, publication cadence, field fit, and collaboration structure
 - explicit coauthor identity evidence labels only when an external source exposes a current or latest-stage junior/student signal
@@ -76,6 +77,7 @@ The enhanced version now uses a local Node server for:
 - static file serving
 - OpenAlex API proxying
 - author identity merging
+- Google Scholar proxy lookups when configured
 - collaborator identity enrichment
 - verified-source boundary discovery
 
@@ -89,6 +91,11 @@ npm start
 Then open:
 
 - `http://localhost:4173/`
+
+### Optional environment variables
+
+- `SEARCHAPI_API_KEY` or `GOOGLE_SCHOLAR_SEARCHAPI_KEY`
+  Enables structured Google Scholar profile lookup. Without one of these, the app still attempts a direct Scholar request and reports whether Google blocked the lookup from the current environment.
 
 ## Testing
 
@@ -107,11 +114,13 @@ node --test
 - `src/app.mjs` - API-driven rendering and comparison UI
 - `src/prof-evaluator.mjs` - scoring model, evidence summary, and comparison helpers
 - `src/author-merge.mjs` - conservative merged-profile logic for split OpenAlex identities
+- `src/google-scholar.mjs` - Google Scholar enrichment, provider handling, and direct-access boundary reporting
 - `src/collaboration-insights.mjs` - coauthor-network analysis
 - `src/inspire-evidence.mjs` - explicit collaborator identity evidence via INSPIRE-HEP
 - `src/web-enrichment.mjs` - verified institutional-source discovery and page extraction
 - `tests/prof-evaluator.test.mjs` - evaluator tests
 - `tests/author-merge.test.mjs` - author merge tests
+- `tests/google-scholar.test.mjs` - Google Scholar enrichment tests
 - `tests/collaboration-insights.test.mjs` - collaboration evidence tests
 - `tests/web-enrichment.test.mjs` - website enrichment parsing tests
 
